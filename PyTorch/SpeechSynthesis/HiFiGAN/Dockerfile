@@ -18,6 +18,9 @@ FROM ${FROM_IMAGE_NAME}
 ENV PYTHONPATH /workspace/hifigan
 WORKDIR /workspace/hifigan
 
+#--- add my user so new files/folders won't be created with root as owner (itamark)
+RUN groupadd --gid 1008 itamark && adduser --gid 1008 --uid 1008 --disabled-password --gecos '' itamark
+
 ADD requirements.txt .
 RUN pip install nvidia-pyindex
 RUN pip install -r requirements.txt

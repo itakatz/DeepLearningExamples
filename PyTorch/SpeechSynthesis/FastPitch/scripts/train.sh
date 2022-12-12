@@ -5,7 +5,7 @@ export OMP_NUM_THREADS=1
 : ${NUM_GPUS:=8}
 : ${BATCH_SIZE:=16}
 : ${GRAD_ACCUMULATION:=2}
-: ${OUTPUT_DIR:="./output"}
+: ${OUTPUT_DIR:="./output_TMP"}
 : ${LOG_FILE:=$OUTPUT_DIR/nvlog.json}
 : ${DATASET_PATH:=LJSpeech-1.1}
 : ${TRAIN_FILELIST:=filelists/ljs_audio_pitch_text_train_v3.txt}
@@ -97,4 +97,5 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 : ${DISTRIBUTED:="-m torch.distributed.launch --nproc_per_node $NUM_GPUS"}
-python $DISTRIBUTED train.py $ARGS "$@"
+echo "python $DISTRIBUTED train.py $ARGS "$@""
+#python $DISTRIBUTED train.py $ARGS "$@"

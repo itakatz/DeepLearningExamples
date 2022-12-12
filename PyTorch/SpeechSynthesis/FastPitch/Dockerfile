@@ -12,11 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:21.05-py3
+#ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:21.05-py3
+ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:21.12-py3
 FROM ${FROM_IMAGE_NAME}
 
 ENV PYTHONPATH /workspace/fastpitch
 WORKDIR /workspace/fastpitch
+
+#--- add my user so new files/folders won't be created with root as owner (itamark)
+#RUN groupadd --gid 1008 itamark && adduser --gid 1008 --uid 1008 --disabled-password --no-create-home --gecos '' itamark
+RUN groupadd --gid 1008 itamark && adduser --gid 1008 --uid 1008 --disabled-password --gecos '' itamark
 
 ADD requirements.txt .
 RUN pip install -r requirements.txt

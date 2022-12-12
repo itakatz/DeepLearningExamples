@@ -236,10 +236,13 @@ class TTSDataset(torch.utils.data.Dataset):
 
     def get_mel(self, filename):
         if not self.load_mel_from_disk:
-            audio, sampling_rate = load_wav_to_torch(filename)
+            audio, sampling_rate, sample_type = load_wav_to_torch(filename)
             if sampling_rate != self.stft.sampling_rate:
                 raise ValueError("{} SR doesn't match target {} SR".format(
                     sampling_rate, self.stft.sampling_rate))
+            if (sample_type == 'PCM_16' and self.max_wav_value != 2**15) or (sample_type == 'PCM_24' and self.max_wav_value != 2**31):
+                raise ValueError(f'file {filename} has sample type {sample_type} but input arg max_wav_value is {self.max_wav_value}')
+
             audio_norm = audio / self.max_wav_value
             audio_norm = audio_norm.unsqueeze(0)
             audio_norm = torch.autograd.Variable(audio_norm,

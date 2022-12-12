@@ -110,11 +110,21 @@ def init_distributed(args, world_size, rank):
 
 
 def load_wav(full_path, torch_tensor=False):
-    data, sampling_rate = soundfile.read(full_path, dtype='int16')
+    #--- check if sound-file is 24bit, if yes, read int32 to preserve resolution (itamark, 2022-12-02)
+    read_dtype = 'int16'
+    try:
+        info = soundfile.info(full_path)
+        sample_type = info.subtype
+        if sample_type == 'PCM_24':
+            read_dtype = 'int32'
+    except Exception as e:
+        sample_type = None
+        
+    data, sampling_rate = soundfile.read(full_path, dtype=read_dtype)
     if torch_tensor:
-        return torch.FloatTensor(data.astype(np.float32)), sampling_rate
+        return torch.FloatTensor(data.astype(np.float32)), sampling_rate, sample_type
     else:
-        return data, sampling_rate
+        return data, sampling_rate, sample_type
 
 
 def load_wav_to_torch(full_path, force_sampling_rate=None):

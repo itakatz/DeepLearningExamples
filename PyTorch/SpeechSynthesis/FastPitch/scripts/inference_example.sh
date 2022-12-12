@@ -3,7 +3,7 @@
 export CUDNN_V8_API_ENABLED=1  # Keep the flag for older containers
 export TORCH_CUDNN_V8_API_ENABLED=1
 
-: ${DATASET_DIR:="data/LJSpeech-1.1"}
+: ${DATASET_DIR:="LJSpeech-1.1"}
 : ${BATCH_SIZE:=32}
 : ${FILELIST:="phrases/devset10.tsv"}
 : ${AMP:=false}
@@ -19,11 +19,21 @@ HIFIGAN_LJ="pretrained_models/hifigan/hifigan_gen_checkpoint_10000_ft.pt"
 WAVEGLOW_LJ="pretrained_models/waveglow/nvidia_waveglow256pyt_fp16.pt"
 
 # Mel-spectrogram generator (optional; can synthesize from ground-truth spectrograms)
-: ${FASTPITCH=$FASTPITCH_LJ}
+#: ${FASTPITCH=$FASTPITCH_LJ}
+: ${FASTPITCH="output/FastPitch_checkpoint_1000.pt"}
 
 # Vocoder (set only one)
-: ${HIFIGAN=$HIFIGAN_LJ}
+: ${HIFIGAN_SAX="../HiFiGAN/results/2022_12_03_hifigan_ssynth44khz24bit/hifigan_gen_checkpoint_10000.pt"} #--- this is a 10000 epochs training on saxophone
+: ${HIFIGAN_LJS="../HiFiGAN/results/hifigan_lj22khz/hifigan_gen_checkpoint_1370.pt"} #--- this is a short training I did on LJSPEECH just to see that code is working
+#: ${HIFIGAN=$HIFIGAN_LJS}
+: ${HIFIGAN=$HIFIGAN_SAX}
+#: ${HIFIGAN=$HIFIGAN_LJ}
 # : ${WAVEGLOW=$WAVEGLOW_LJ}
+
+#OUTPUT_HIFIGAN_SUEFIX=""
+[[ "$HIFIGAN" == "$HIFIGAN_SAX" ]] && { OUTPUT_HIFIGAN_SUEFIX="_SAX"; }
+[[ "$HIFIGAN" == "$HIFIGAN_SAX" ]] && { echo "ERROR: inference with hifigan trained on saxophone recordings and fastpitch trained on ljspeech will not work"; \
+                                        echo "since sampling rate is different (44100 vs 22050). exiting script"; exit;}
 
 [[ "$FASTPITCH" == "$FASTPITCH_LJ" && ! -f "$FASTPITCH" ]] && { echo "Downloading $FASTPITCH from NGC..."; bash scripts/download_models.sh fastpitch; }
 [[ "$WAVEGLOW" == "$WAVEGLOW_LJ" && ! -f "$WAVEGLOW" ]] && { echo "Downloading $WAVEGLOW from NGC..."; bash scripts/download_models.sh waveglow; }
@@ -46,9 +56,10 @@ if [ ! -n "$OUTPUT_DIR" ]; then
     [ -n "$FASTPITCH" ]   && OUTPUT_DIR+="_fastpitch"
     [ ! -n "$FASTPITCH" ] && OUTPUT_DIR+="_gt-mel"
     [ -n "$WAVEGLOW" ]    && OUTPUT_DIR+="_waveglow"
-    [ -n "$HIFIGAN" ]     && OUTPUT_DIR+="_hifigan"
+    [ -n "$HIFIGAN" ]     && OUTPUT_DIR+="_hifigan$OUTPUT_HIFIGAN_SUEFIX"
     OUTPUT_DIR+="_denoise-"${DENOISING}
 fi
+
 : ${LOG_FILE:="$OUTPUT_DIR/nvlog_infer.json"}
 mkdir -p "$OUTPUT_DIR"
 

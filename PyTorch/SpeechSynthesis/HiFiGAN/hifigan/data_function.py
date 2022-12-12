@@ -53,7 +53,11 @@ from torch.utils.data.distributed import DistributedSampler
 from common.audio_processing import dynamic_range_compression
 from common.utils import load_filepaths_and_text, load_wav
 
-MAX_WAV_VALUE = 32768.0
+#--- make the data-type 24bit-recording (which has type int32) friendly (itamark, 2022-12-02)
+#--- Note these values are not used by default, since train.py:123 defines a default value of 32768
+MAX_WAV_VALUE_INT16 = 2**15 # 32768.0
+MAX_WAV_VALUE_INT32 = 2**31 # 2147483648.0
+MAX_WAV_VALUE_DICT = dict(PCM_16=MAX_WAV_VALUE_INT16, PCM_24=MAX_WAV_VALUE_INT32) 
 
 mel_basis = {}
 hann_window = {}
@@ -95,7 +99,7 @@ class MelDataset(torch.utils.data.Dataset):
                  hop_size, win_size, sampling_rate,  fmin, fmax, split=True,
                  device=None, fmax_loss=None, fine_tuning=False,
                  base_mels_path=None, repeat=1, deterministic=False,
-                 max_wav_value=MAX_WAV_VALUE):
+                 max_wav_value=MAX_WAV_VALUE_DICT['PCM_16']):
 
         self.audio_files = training_files
         self.segment_size = segment_size
@@ -121,8 +125,14 @@ class MelDataset(torch.utils.data.Dataset):
         rng = random.default_rng(index) if self.deterministic else self.rng
         index = index % len(self.audio_files)  # collapse **after** setting seed
         filename = self.audio_files[index]
-        audio, sampling_rate = load_wav(filename)
-        audio = audio / self.max_wav_value
+        audio, sampling_rate, sample_type = load_wav(filename)
+
+        MAX_WAV_VALUE = MAX_WAV_VALUE_DICT.get(sample_type, self.max_wav_value)
+        #--- if input arg of max-wav-value does not match what was inferred from file, warn
+        if self.max_wav_value != MAX_WAV_VALUE:
+            raise ValueError(f'data type inferred from file {sample_type} does not match max_wav_value {self.max_wav_value}')
+        
+        audio = audio / MAX_WAV_VALUE
         if not self.fine_tuning:
             audio = normalize(audio) * 0.95
         if sampling_rate != self.sampling_rate:
