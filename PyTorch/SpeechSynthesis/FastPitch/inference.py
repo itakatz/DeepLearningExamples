@@ -84,7 +84,7 @@ def parse_args(parser):
                         help='STFT win length for denoiser and mel loss')
     parser.add_argument('-sr', '--sampling-rate', default=22050, type=int,
                         choices=[22050, 44100], help='Sampling rate')
-    parser.add_argument('--max_wav_value', default=32768.0, type=float,
+    parser.add_argument('--max-wav-value', default=32768.0, type=float,
                         help='Maximum audiowave value')
     parser.add_argument('--amp', action='store_true',
                         help='Inference with AMP')
@@ -115,6 +115,9 @@ def parse_args(parser):
                                  'socket_unique_continuous',
                                  'disabled'],
                         help='type of CPU affinity')
+    #--- MIDI options
+    parser.add_argument('--text-as-midi', action='store_true',
+                        help='Treat input text as MIDI notes rather then text')
 
     transf = parser.add_argument_group('transform')
     transf.add_argument('--fade-out', type=int, default=10,
@@ -160,18 +163,25 @@ def load_fields(fpath):
 
 def prepare_input_sequence(fields, device, symbol_set, text_cleaners,
                            batch_size=128, dataset=None, load_mels=False,
-                           load_pitch=False, p_arpabet=0.0):
-    tp = TextProcessing(symbol_set, text_cleaners, p_arpabet=p_arpabet)
-
-    fields['text'] = [torch.LongTensor(tp.encode_text(text))
-                      for text in fields['text']]
+                           load_pitch=False, p_arpabet=0.0, treat_text_as_midi = False):
+    if not treat_text_as_midi:
+        tp = TextProcessing(symbol_set, text_cleaners, p_arpabet=p_arpabet)
+        fields['text'] = [torch.LongTensor(tp.encode_text(text)) 
+                            for text in fields['text']]
+    else:
+        fields['text'] = [torch.LongTensor([int(t) for t in txt.split()]) 
+                            for txt in fields['text']] 
+        
     order = np.argsort([-t.size(0) for t in fields['text']])
 
     fields['text'] = [fields['text'][i] for i in order]
     fields['text_lens'] = torch.LongTensor([t.size(0) for t in fields['text']])
 
     for t in fields['text']:
-        print(tp.sequence_to_text(t.numpy()))
+        if not treat_text_as_midi:
+            print(tp.sequence_to_text(t.numpy()))
+        else:
+            print(t.numpy())
 
     if load_mels:
         assert 'mel' in fields
@@ -428,10 +438,10 @@ def main():
         mel_loss_fn = setup_mel_loss_reporting(args, voc_train_setup)
 
     fields = load_fields(args.input)
-    batches = prepare_input_sequence(
-        fields, device, args.symbol_set, args.text_cleaners, args.batch_size,
-        args.dataset_path, load_mels=(generator is None or args.report_mel_loss),
-        p_arpabet=args.p_arpabet)
+    batches = prepare_input_sequence(fields, device, args.symbol_set, args.text_cleaners, args.batch_size, args.dataset_path, 
+                                     load_mels = (generator is None or args.report_mel_loss),
+                                     p_arpabet = args.p_arpabet,
+                                     treat_text_as_midi = args.text_as_midi)
 
     cycle = itertools.cycle(batches)
     # Use real data rather than synthetic - FastPitch predicts len

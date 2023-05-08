@@ -65,7 +65,18 @@ def mask_from_lens(lens, max_len: Optional[int] = None):
 
 def load_wav(full_path, torch_tensor=False):
     import soundfile  # flac
-    data, sampling_rate = soundfile.read(full_path, dtype='int16')
+    
+    #--- check if sound-file is 24bit, if yes, read int32 to preserve resolution (itamark, 2022-12-02)
+    read_dtype = 'int16'
+    try:
+        info = soundfile.info(full_path)
+        sample_type = info.subtype
+        if sample_type == 'PCM_24':
+            read_dtype = 'int32'
+    except Exception as e:
+        sample_type = None
+
+    data, sampling_rate = soundfile.read(full_path, dtype=read_dtype)
     if torch_tensor:
         return torch.FloatTensor(data.astype(np.float32)), sampling_rate
     else:
@@ -73,6 +84,12 @@ def load_wav(full_path, torch_tensor=False):
 
 
 def load_wav_to_torch(full_path, force_sampling_rate=None):
+    #--- use same impl as in HiFiGAN/common/utils.py (itamark, 2022-12-19)
+    if force_sampling_rate is not None:
+        raise NotImplementedError
+    return load_wav(full_path, True)
+    
+    #--- this is the original impl, leave it for reference:
     if force_sampling_rate is not None:
         data, sampling_rate = librosa.load(full_path, sr=force_sampling_rate)
     else:

@@ -78,8 +78,8 @@ def beta_binomial_prior_distribution(phoneme_count, mel_count, scaling=1.0):
     return torch.tensor(np.array(mel_text_probs))
 
 
-def estimate_pitch(wav, mel_len, method='pyin', normalize_mean=None,
-                   normalize_std=None, n_formants=1):
+def estimate_pitch(wav, mel_len, sampling_rate = None, method='pyin', normalize_mean=None,
+                   normalize_std=None, n_formants=1, note_min = 'C2', note_max = 'C7'):
 
     if type(normalize_mean) is float or type(normalize_mean) is list:
         normalize_mean = torch.tensor(normalize_mean)
@@ -89,10 +89,10 @@ def estimate_pitch(wav, mel_len, method='pyin', normalize_mean=None,
 
     if method == 'pyin':
 
-        snd, sr = librosa.load(wav)
+        snd, sr = librosa.load(wav, sr=sampling_rate) #--- leave the default sampling_rate value None to make librosa use the native sr
         pitch_mel, voiced_flag, voiced_probs = librosa.pyin(
-            snd, fmin=librosa.note_to_hz('C2'),
-            fmax=librosa.note_to_hz('C7'), frame_length=1024)
+            snd, fmin=librosa.note_to_hz(note_min),
+            fmax=librosa.note_to_hz(note_max), sr = sr, frame_length = 1024)
         assert np.abs(mel_len - pitch_mel.shape[0]) <= 1.0
 
         pitch_mel = np.where(np.isnan(pitch_mel), 0.0, pitch_mel)
@@ -153,6 +153,9 @@ class TTSDataset(torch.utils.data.Dataset):
                  betabinomial_online_dir=None,
                  use_betabinomial_interpolator=True,
                  pitch_online_method='pyin',
+                 treat_text_as_midi=False,
+                 midi_note_min='C2',
+                 midi_note_max='C7',
                  **ignored):
 
         # Expect a list of filenames
@@ -179,10 +182,17 @@ class TTSDataset(torch.utils.data.Dataset):
             'Only 0.0 and 1.0 p_arpabet is currently supported. '
             'Variable probability breaks caching of betabinomial matrices.')
 
-        self.tp = TextProcessing(symbol_set, text_cleaners, p_arpabet=p_arpabet)
+        if not treat_text_as_midi:
+            self.tp = TextProcessing(symbol_set, text_cleaners, p_arpabet=p_arpabet)
+        else:
+            self.tp = None
         self.n_speakers = n_speakers
         self.pitch_tmp_dir = pitch_online_dir
         self.f0_method = pitch_online_method
+        self.treat_text_as_midi = treat_text_as_midi
+        self.midi_note_min = midi_note_min
+        self.midi_note_max = midi_note_max
+
         self.betabinomial_tmp_dir = betabinomial_online_dir
         self.use_betabinomial_interpolator = use_betabinomial_interpolator
 
@@ -214,7 +224,11 @@ class TTSDataset(torch.utils.data.Dataset):
             speaker = None
 
         mel = self.get_mel(audiopath)
-        text = self.get_text(text)
+        if self.treat_text_as_midi:
+            text = [int(t) for t in text.split()]
+            text = torch.LongTensor(text)
+        else:
+            text = self.get_text(text)
         pitch = self.get_pitch(index, mel.size(-1))
         energy = torch.norm(mel.float(), dim=0, p=2)
         attn_prior = self.get_prior(index, mel.shape[1], text.shape[0])
@@ -233,7 +247,8 @@ class TTSDataset(torch.utils.data.Dataset):
 
     def get_mel(self, filename):
         if not self.load_mel_from_disk:
-            audio, sampling_rate = load_wav_to_torch(filename)
+            #--- librosa is used inside load_wav_to_torch, so give it the native sampling-rate (librosa's defaults to 22050)
+            audio, sampling_rate = load_wav_to_torch(filename) #, force_sampling_rate = self.sampling_rate) 
             if sampling_rate != self.stft.sampling_rate:
                 raise ValueError("{} SR doesn't match target {} SR".format(
                     sampling_rate, self.stft.sampling_rate))
@@ -315,8 +330,8 @@ class TTSDataset(torch.utils.data.Dataset):
             wav = re.sub('/mels/', '/wavs/', wav)
             wav = re.sub('.pt$', '.wav', wav)
 
-        pitch_mel = estimate_pitch(wav, mel_len, self.f0_method,
-                                   self.pitch_mean, self.pitch_std)
+        pitch_mel = estimate_pitch(wav, mel_len, self.sampling_rate, self.f0_method,
+                                   self.pitch_mean, self.pitch_std, note_min = self.midi_note_min, note_max = self.midi_note_max)
 
         if self.pitch_tmp_dir is not None and not cached_fpath.is_file():
             cached_fpath.parent.mkdir(parents=True, exist_ok=True)

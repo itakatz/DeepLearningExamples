@@ -62,7 +62,8 @@ class MelAudioLoader(torch.utils.data.Dataset):
         random.shuffle(self.audiopaths_and_text)
 
     def get_mel_audio_pair(self, filename):
-        audio, sampling_rate = load_wav_to_torch(filename)
+        #--- librosa is used inside load_wav_to_torch, so give it the native sampling-rate (librosa's defaults to 22050)
+        audio, sampling_rate = load_wav_to_torch(filename, force_sampling_rate = self.sampling_rate) 
 
         if sampling_rate != self.stft.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(

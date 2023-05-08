@@ -74,6 +74,14 @@ def parse_args(parser):
     # Pitch extraction
     parser.add_argument('--f0-method', default='pyin', type=str,
                         choices=['pyin'], help='F0 estimation method')
+    #--- MIDI input
+    parser.add_argument('--text-as-midi', action='store_false',
+                        help='Treat input text as MIDI notes rather then text')
+    parser.add_argument('--midi-note-min', type=str, default='C2',
+                         help='Min MIDI note for pitch detection')
+    parser.add_argument('--midi-note-max', type=str, default='C7',
+                         help='Max MIDI note for pitch detection')
+
     # Performance
     parser.add_argument('-b', '--batch-size', default=1, type=int)
     parser.add_argument('--n-workers', type=int, default=16)
@@ -126,7 +134,10 @@ def main():
             mel_fmax=args.mel_fmax,
             betabinomial_online_dir=None,
             pitch_online_dir=None,
-            pitch_online_method=args.f0_method)
+            pitch_online_method=args.f0_method,
+            treat_text_as_midi=args.text_as_midi,
+            midi_note_min=args.midi_note_min,
+            midi_note_max=args.midi_note_max)
 
         data_loader = DataLoader(
             dataset,

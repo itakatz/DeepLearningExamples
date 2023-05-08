@@ -175,6 +175,14 @@ def parse_args(parser):
                        help='Minimum mel frequency')
     audio.add_argument('--mel-fmax', default=8000.0, type=float,
                        help='Maximum mel frequency')
+    
+    #--- MIDI input
+    parser.add_argument('--text-as-midi', action='store_false',
+                        help='Treat input text as MIDI notes rather then text')
+    parser.add_argument('--midi-note-min', type=str, default='C2',
+                         help='Min MIDI note for pitch detection')
+    parser.add_argument('--midi-note-max', type=str, default='C7',
+                         help='Max MIDI note for pitch detection')
 
     dist = parser.add_argument_group('distributed setup')
     dist.add_argument('--local_rank', type=int, default=os.getenv('LOCAL_RANK', 0),
