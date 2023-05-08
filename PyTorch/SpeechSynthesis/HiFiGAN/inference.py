@@ -38,13 +38,15 @@ from common.text.text_processing import TextProcessing
 from common.utils import l2_promote
 from fastpitch.pitch_transform import pitch_transform_custom
 
-from hifigan.data_function import MAX_WAV_VALUE, mel_spectrogram
+from hifigan.data_function import MAX_WAV_VALUE_DICT, mel_spectrogram
 from hifigan.logging import init_inference_metadata
 from hifigan.models import Denoiser
 
+#--- TODO use sample type to set MAX_WAV_VALUE
+MAX_WAV_VALUE = MAX_WAV_VALUE_DICT['PCM_24']
 
 CHECKPOINT_SPECIFIC_ARGS = [
-    'sampling_rate', 'hop_length', 'win_length', 'p_arpabet', 'text_cleaners',
+    'num_mel_filters', 'sampling_rate', 'hop_length', 'win_length', 'p_arpabet', 'text_cleaners',
     'symbol_set', 'max_wav_value', 'prepend_space_to_text',
     'append_space_to_text']
 
@@ -85,8 +87,10 @@ def parse_args(parser):
                         help='STFT win length for denoiser and mel loss')
     parser.add_argument('-sr', '--sampling-rate', default=22050, type=int,
                         choices=[22050, 44100], help='Sampling rate')
-    parser.add_argument('--max_wav_value', default=32768.0, type=float,
+    parser.add_argument('--max-wav-value', default=32768.0, type=float,
                         help='Maximum audiowave value')
+    parser.add_argument('--num-mels', default=80, type=int,
+                       help='number of Mel bands')
     parser.add_argument('--amp', action='store_true',
                         help='Inference with AMP')
     parser.add_argument('-bs', '--batch-size', type=int, default=64)
@@ -381,7 +385,8 @@ def main():
         vocoder, voc_train_setup = _load_pyt_or_ts_model('HiFi-GAN',
                                                          args.hifigan)
         if args.denoising_strength > 0.0:
-            denoiser = Denoiser(vocoder, win_length=args.win_length).to(device)
+            # DONE assert(False, "TODO give num_mels as input (also for waveglow model ln 369")
+            denoiser = Denoiser(vocoder, win_length=args.win_length, num_mel_filters = args.num_mels).to(device)
 
         if args.torch_tensorrt:
             vocoder = models.convert_ts_to_trt('HiFi-GAN', vocoder, parser,

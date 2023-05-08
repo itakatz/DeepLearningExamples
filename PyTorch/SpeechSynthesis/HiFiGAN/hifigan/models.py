@@ -148,7 +148,7 @@ class Generator(nn.Module):
         self.num_upsamples = len(conf.upsample_rates)
 
         self.conv_pre = weight_norm(
-            Conv1d(80, conf.upsample_initial_channel, 7, 1, padding=3))
+            Conv1d(conf.num_mel_filters, conf.upsample_initial_channel, 7, 1, padding=3))
 
         self.lrelu_slope = LRELU_SLOPE
 
@@ -236,7 +236,7 @@ class Denoiser(nn.Module):
     """ Removes model bias from audio produced with hifigan """
 
     def __init__(self, hifigan, filter_length=1024, n_overlap=4,
-                 win_length=1024, mode='zeros', **infer_kw):
+                 win_length=1024, mode='zeros', num_mel_filters = 80, **infer_kw):
         super().__init__()
 
         w = next(p for name, p in hifigan.named_parameters()
@@ -247,7 +247,7 @@ class Denoiser(nn.Module):
                          win_length=win_length).to(w.device)
 
         mel_init = {'zeros': torch.zeros, 'normal': torch.randn}[mode]
-        mel_input = mel_init((1, 80, 88), dtype=w.dtype, device=w.device)
+        mel_input = mel_init((1, num_mel_filters, 88), dtype=w.dtype, device=w.device)
 
         with torch.no_grad():
             bias_audio = hifigan(mel_input, **infer_kw).float()

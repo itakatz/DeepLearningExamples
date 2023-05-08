@@ -98,7 +98,7 @@ class MelDataset(torch.utils.data.Dataset):
     def __init__(self, training_files, segment_size, n_fft, num_mels,
                  hop_size, win_size, sampling_rate,  fmin, fmax, split=True,
                  device=None, fmax_loss=None, fine_tuning=False,
-                 base_mels_path=None, repeat=1, deterministic=False,
+                 base_mels_path=None, use_synthesized_wavs=False, repeat=1, deterministic=False,
                  max_wav_value=MAX_WAV_VALUE_DICT['PCM_16']):
 
         self.audio_files = training_files
@@ -115,6 +115,7 @@ class MelDataset(torch.utils.data.Dataset):
         self.max_wav_value = max_wav_value
         self.fine_tuning = fine_tuning
         self.base_mels_path = base_mels_path
+        self.use_synthesized_wavs = use_synthesized_wavs
         self.repeat = repeat
         self.deterministic = deterministic
         self.rng = random.default_rng()
@@ -142,7 +143,8 @@ class MelDataset(torch.utils.data.Dataset):
         audio = torch.FloatTensor(audio)
         audio = audio.unsqueeze(0)
 
-        if not self.fine_tuning:
+        #--- for loading mels of synthesized wavs, use the code that load mels for fine-tuning. So add here the condition "not self.use_synthesized_wavs"
+        if (not self.fine_tuning) and (not self.use_synthesized_wavs):
             if self.split:
                 if audio.size(1) >= self.segment_size:
                     max_audio_start = audio.size(1) - self.segment_size
@@ -156,10 +158,16 @@ class MelDataset(torch.utils.data.Dataset):
                                   self.win_size, self.fmin, self.fmax,
                                   center=False)
         else:
-            mel = np.load(
-                os.path.join(self.base_mels_path,
-                os.path.splitext(os.path.split(filename)[-1])[0] + '.npy'))
-            mel = torch.from_numpy(mel).float()
+            mel_fnm = os.path.join(
+                    self.base_mels_path, 
+                    os.path.splitext(os.path.split(filename)[-1])[0])
+            if self.use_synthesized_wavs:
+                mel_fnm += '.pt'
+                mel = torch.load(mel_fnm)
+            else:
+                mel_fnm += '.npy'
+                mel = np.load(mel_fnm)
+                mel = torch.from_numpy(mel).float()
 
             if len(mel.shape) < 3:
                 mel = mel.unsqueeze(0)
@@ -187,7 +195,7 @@ class MelDataset(torch.utils.data.Dataset):
         return len(self.audio_files) * self.repeat
 
 
-def get_data_loader(args, distributed_run, train=True, batch_size=None,
+def get_data_loader(args, distributed_run, train=True, batch_size=None, # split = True,
                     val_kwargs=None):
 
     filelists = args.training_files if train else args.validation_files
@@ -207,7 +215,9 @@ def get_data_loader(args, distributed_run, train=True, batch_size=None,
         'max_wav_value': args.max_wav_value,
         'fine_tuning': args.fine_tuning,
         'base_mels_path': args.input_mels_dir,
-        'deterministic': not train
+        'use_synthesized_wavs': args.use_synthesized_wavs,
+        'deterministic': not train,
+        #'split': split
     }
 
     if train:

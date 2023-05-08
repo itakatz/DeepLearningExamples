@@ -157,6 +157,7 @@ def get_model_config(model_name, args, ckpt_config=None):
             resblock=args.resblock,
             resblock_kernel_sizes=args.resblock_kernel_sizes,
             resblock_dilation_sizes=args.resblock_dilation_sizes,
+            num_mel_filters=args.num_mels,
         )
     elif model_name == 'WaveGlow':
         model_config = dict(

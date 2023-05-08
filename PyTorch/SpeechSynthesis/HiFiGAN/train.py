@@ -88,6 +88,9 @@ def parse_args(parser):
                        help='Enable fine-tuning')
     train.add_argument('--input_mels_dir', type=str, default=None,
                        help='Directory with mels for fine-tuning')
+    #--- add the option to train from mels prepared from synthesized audio. To use this option, a --input_mels_dir should also be given
+    parser.add_argument('--use_synthesized_wavs', action='store_true',
+                        help='load mels from synthesized wavs instead of original')
     train.add_argument('--benchmark_epochs_num', type=int, default=5)
     train.add_argument('--no_amp_grouped_conv', action='store_true',
                        help='Disable AMP on certain convs for better perf')

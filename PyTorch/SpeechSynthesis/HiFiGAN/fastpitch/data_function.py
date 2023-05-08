@@ -133,6 +133,7 @@ class TTSDataset(torch.utils.data.Dataset):
                  audiopaths_and_text,
                  text_cleaners,
                  n_mel_channels,
+                 use_synthesized_wavs=False, #--- if true, we abuse the 'text' column and read synth wavs path from there
                  symbol_set='english_basic',
                  p_arpabet=1.0,
                  n_speakers=1,
@@ -163,6 +164,10 @@ class TTSDataset(torch.utils.data.Dataset):
         self.audiopaths_and_text = load_filepaths_and_text(
             dataset_path, audiopaths_and_text,
             has_speakers=(n_speakers > 1))
+        #--- if true, we abuse the "text" column and read the synth wavs path from it
+        if use_synthesized_wavs:
+            self.audiopaths_and_text = [(f'{self.dataset_path}/{col[1]}', '') for col in self.audiopaths_and_text]
+
         self.load_mel_from_disk = load_mel_from_disk
         if not load_mel_from_disk:
             self.max_wav_value = max_wav_value

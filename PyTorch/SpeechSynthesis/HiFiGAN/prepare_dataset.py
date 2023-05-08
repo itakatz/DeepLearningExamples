@@ -47,6 +47,10 @@ def parse_args(parser):
                         type=str, help='Files with audio paths and text')
     parser.add_argument('--extract-mels', action='store_true',
                         help='Calculate spectrograms from .wav files')
+    parser.add_argument('--use-synthesized-wavs', action='store_true',
+                        help='load synthesized wavs instead of original files (for mel spectrum)')
+    parser.add_argument('--synth-suffix', type=str,
+                        default='synth', help='The suffix to add to target mel folder')
     parser.add_argument('--extract-pitch', action='store_true',
                         help='Extract pitch')
     parser.add_argument('--log-file', type=str, default='preproc_log.json',
@@ -94,8 +98,11 @@ def main():
     DLLogger.flush()
 
     if args.extract_mels:
-        Path(args.dataset_path, 'mels').mkdir(parents=False, exist_ok=True)
-
+        mel_path  = f'mels_{args.synth_suffix}' if args.use_synthesized_wavs else 'mels'
+        if args.n_mel_channels != 80:
+            mel_path += f'_n{args.n_mel_channels}'
+        Path(args.dataset_path, mel_path).mkdir(parents=False, exist_ok=True)
+    
     if args.extract_pitch:
         Path(args.dataset_path, 'pitch').mkdir(parents=False, exist_ok=True)
 
@@ -108,6 +115,7 @@ def main():
             filelist,
             text_cleaners=['english_cleaners_v2'],
             n_mel_channels=args.n_mel_channels,
+            use_synthesized_wavs=args.use_synthesized_wavs, 
             p_arpabet=0.0,
             n_speakers=args.n_speakers,
             load_mel_from_disk=False,
@@ -148,9 +156,12 @@ def main():
                 all_filenames.add(fname)
 
             if args.extract_mels:
+                mel_path  = f'mels_{args.synth_suffix}' if args.use_synthesized_wavs else 'mels'
+                if args.n_mel_channels != 80:
+                    mel_path += f'_n{args.n_mel_channels}'
                 for j, mel in enumerate(mels):
                     fname = Path(fpaths[j]).with_suffix('.pt').name
-                    fpath = Path(args.dataset_path, 'mels', fname)
+                    fpath = Path(args.dataset_path, mel_path, fname)
                     torch.save(mel[:, :mel_lens[j]], fpath)
 
             if args.extract_pitch:
