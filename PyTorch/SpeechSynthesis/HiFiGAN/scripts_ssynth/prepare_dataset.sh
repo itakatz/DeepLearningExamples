@@ -32,7 +32,8 @@ if [ "$USE_SYNTH_WAVS" != true ]; then
         --sampling-rate 44100 \
         --mel-fmax 22050 \
         --n-mel-channels $N_MEL_FILTERS \
-        --max-wav-value 2147483648
+        --max-wav-value 2147483648 \
+        --use-mel-impl-from-hifigan
         "$@"
 else
     #--- if we need mels from synthesized audio, run again with the flag --use-synthesized-wavs
@@ -47,6 +48,7 @@ else
         --sampling-rate 44100 \
         --mel-fmax 22050 \
         --n-mel-channels $N_MEL_FILTERS \
-        --max-wav-value 2147483648
+        --max-wav-value 2147483648 \
+        --use-mel-impl-from-hifigan
         "$@"
 fi

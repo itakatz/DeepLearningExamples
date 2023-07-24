@@ -99,7 +99,7 @@ class MelDataset(torch.utils.data.Dataset):
                  hop_size, win_size, sampling_rate,  fmin, fmax, split=True,
                  device=None, fmax_loss=None, fine_tuning=False,
                  base_mels_path=None, use_synthesized_wavs=False, repeat=1, deterministic=False,
-                 max_wav_value=MAX_WAV_VALUE_DICT['PCM_16']):
+                 max_wav_value=MAX_WAV_VALUE_DICT['PCM_16'], normalize_loaded_audio = True):
 
         self.audio_files = training_files
         self.segment_size = segment_size
@@ -119,6 +119,7 @@ class MelDataset(torch.utils.data.Dataset):
         self.repeat = repeat
         self.deterministic = deterministic
         self.rng = random.default_rng()
+        self.normalize_loaded_audio = normalize_loaded_audio
 
     def __getitem__(self, index):
         if index >= len(self):
@@ -134,7 +135,7 @@ class MelDataset(torch.utils.data.Dataset):
             raise ValueError(f'data type inferred from file {sample_type} does not match max_wav_value {self.max_wav_value}')
         
         audio = audio / MAX_WAV_VALUE
-        if not self.fine_tuning:
+        if not self.fine_tuning and self.normalize_loaded_audio:
             audio = normalize(audio) * 0.95
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} SR doesn't match target {} SR".format(
@@ -217,6 +218,7 @@ def get_data_loader(args, distributed_run, train=True, batch_size=None, # split 
         'base_mels_path': args.input_mels_dir,
         'use_synthesized_wavs': args.use_synthesized_wavs,
         'deterministic': not train,
+        'normalize_loaded_audio': args.normalize_loaded_audio,
         #'split': split
     }
 

@@ -40,7 +40,7 @@ from scipy.stats import betabinom
 import common.layers as layers
 from common.text.text_processing import TextProcessing
 from common.utils import load_wav_to_torch, load_filepaths_and_text, to_gpu
-
+from hifigan.data_function import mel_spectrogram
 
 class BetaBinomialInterpolator:
     """Interpolates alignment prior matrices to save computation.
@@ -154,6 +154,7 @@ class TTSDataset(torch.utils.data.Dataset):
                  betabinomial_online_dir=None,
                  use_betabinomial_interpolator=True,
                  pitch_online_method='pyin',
+                 use_mel_impl_from_hifigan = False, #--- itamark, 2022-05-25 allow the usage of same mel implementation in training and inference. leave the original as default
                  **ignored):
 
         # Expect a list of filenames
@@ -175,10 +176,16 @@ class TTSDataset(torch.utils.data.Dataset):
             self.stft = layers.TacotronSTFT(
                 filter_length, hop_length, win_length,
                 n_mel_channels, sampling_rate, mel_fmin, mel_fmax)
+            
+            self.mel_spectrogram = functools.partial(mel_spectrogram, n_fft = filter_length, num_mels = n_mel_channels, sampling_rate = sampling_rate, 
+                                                     hop_size = hop_length, win_size = win_length, fmin = mel_fmin, fmax = mel_fmax, center = False)
+        self.use_mel_impl_from_hifigan = use_mel_impl_from_hifigan
+
         self.load_pitch_from_disk = load_pitch_from_disk
 
         self.prepend_space_to_text = prepend_space_to_text
         self.append_space_to_text = append_space_to_text
+
 
         assert p_arpabet == 0.0 or p_arpabet == 1.0, (
             'Only 0.0 and 1.0 p_arpabet is currently supported. '
@@ -250,9 +257,13 @@ class TTSDataset(torch.utils.data.Dataset):
 
             audio_norm = audio / self.max_wav_value
             audio_norm = audio_norm.unsqueeze(0)
-            audio_norm = torch.autograd.Variable(audio_norm,
-                                                 requires_grad=False)
-            melspec = self.stft.mel_spectrogram(audio_norm)
+            #--- select original impl of mel, or the same mel impl used in training (makes more sense) - itamark
+            if self.use_mel_impl_from_hifigan:
+                melspec = self.mel_spectrogram(audio_norm)
+            else:
+                audio_norm = torch.autograd.Variable(audio_norm,
+                                                     requires_grad=False)
+                melspec = self.stft.mel_spectrogram(audio_norm)
             melspec = torch.squeeze(melspec, 0)
         else:
             melspec = torch.load(filename)

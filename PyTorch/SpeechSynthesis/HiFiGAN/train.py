@@ -143,6 +143,8 @@ def parse_args(parser):
                        help='Maximum mel frequency used for computing loss')
     audio.add_argument('--segment_size', default=8192, type=int,
                        help='Training segment size')
+    train.add_argument('--normalize_loaded_audio', action='store_true',
+                       help='Normalize audio to [-1., 1.] interval when loading')
 
     dist = parser.add_argument_group('distributed setup')
     dist.add_argument(

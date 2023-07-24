@@ -72,6 +72,8 @@ def parse_args(parser):
     parser.add_argument('--mel-fmax', default=8000.0, type=float,
                         help='Maximum mel frequency')
     parser.add_argument('--n-mel-channels', type=int, default=80)
+    parser.add_argument('--use-mel-impl-from-hifigan', action='store_true',
+                        help='Use Mel spectrum implemetation from hifigan module')
     # Pitch extraction
     parser.add_argument('--f0-method', default='pyin', type=str,
                         choices=('pyin',), help='F0 estimation method')
@@ -131,7 +133,8 @@ def main():
             mel_fmax=args.mel_fmax,
             betabinomial_online_dir=None,
             pitch_online_dir=None,
-            pitch_online_method=args.f0_method if args.extract_pitch else None)
+            pitch_online_method=args.f0_method if args.extract_pitch else None,
+            use_mel_impl_from_hifigan = args.use_mel_impl_from_hifigan)
 
         data_loader = DataLoader(
             dataset,

@@ -117,6 +117,7 @@ class ResBlock2(nn.Module):
     def __init__(self, conf, channels, kernel_size=3, dilation=(1, 3)):
         super().__init__()
         self.conf = conf
+        self.lrelu_slope = LRELU_SLOPE
 
         ch, ks = channels, kernel_size
         self.convs = nn.ModuleList([
