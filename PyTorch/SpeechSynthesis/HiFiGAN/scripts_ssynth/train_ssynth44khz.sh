@@ -7,6 +7,7 @@ export CUDNN_V8_API_ENABLED=1  # Keep the flag for older containers
 export TORCH_CUDNN_V8_API_ENABLED=1
 : ${MAX_WAV_VALUE:=2147483648}
 : ${SAMPLING_RATE:=44100}
+: ${NORMALIZE_AUDIO:=false}
 : ${N_MEL_FILTERS:=80}
 : ${NUM_GPUS:=8}
 : ${BATCH_SIZE:=16}
@@ -21,6 +22,21 @@ export TORCH_CUDNN_V8_API_ENABLED=1
 
 : ${FINE_TUNE_DIR:=""}
 
+# presets of the generator, see original impl here: https://github.com/jik876/hifi-gan
+# the default params are V1 
+: ${GENERATOR_VER:="V1"}
+if [ "$GENERATOR_VER" = "V2" ]; then
+    ARGS+=" --upsample_initial_channel 128"
+fi
+
+if [ "$GENERATOR_VER" = "V3" ]; then
+    ARGS+=" --resblock 2"
+    ARGS+=" --upsample_rates [8,8,4]"
+    ARGS+=" --upsample_kernel_sizes [16,16,8]"
+    ARGS+=" --upsample_initial_channel 256"
+    ARGS+=" --resblock_kernel_sizes [3,5,7]"
+    ARGS+=" --resblock_dilation_sizes [[1,2],[2,6],[3,12]]"
+fi
 
 : ${USE_SYNTH_WAVS:=false}
 : ${SYNTH_SUFFIX:=synth}
@@ -35,6 +51,11 @@ if [ "$USE_SYNTH_WAVS" = true ]; then
     if [ $N_MEL_FILTERS != 80 ]; then
         SYNTH_MEL_DIR="$SYNTH_MEL_DIR"_n"$N_MEL_FILTERS"
     fi
+    
+    #--- follow the symlink so the actual folder used for training is written in the logs (because the symlink can be change/deleted)
+    #if [ -L "$SYNTH_MEL_DIR" ]; then
+    #    SYNTH_MEL_DIR=`readlink "$SYNTH_MEL_DIR"`
+    #fi
 fi
 
 # Intervals are specified in # of epochs
@@ -70,6 +91,7 @@ ARGS+=" --validation_interval $VAL_INTERVAL"
 ARGS+=" --samples_interval $SAMPLES_INTERVAL"
 ARGS+=" --sampling_rate $SAMPLING_RATE"
 ARGS+=" --mel_fmax 22050"
+ARGS+=" --mel_fmax_loss 16000"
 ARGS+=" --num_mels $N_MEL_FILTERS"
 
 #--- in the dataset class hifigan/data_function.py:MelDataset, the "split" arg is true by default
@@ -90,6 +112,7 @@ ARGS+=" --segment_size 32768"
 [ -n "$LOG_FILE" ]            && ARGS+=" --log_file $LOG_FILE"
 [ -n "$BMARK_EPOCHS_NUM" ]    && ARGS+=" --benchmark_epochs_num $BMARK_EPOCHS_NUM"
 [ -n "$MAX_WAV_VALUE" ]       && ARGS+=" --max_wav_value $MAX_WAV_VALUE"
+[ "$NORMALIZE_AUDIO" = true ] && ARGS+=" --normalize_loaded_audio"
 
 : ${DISTRIBUTED:="-m torch.distributed.launch --nproc_per_node $NUM_GPUS"}
 echo "python $DISTRIBUTED train.py $ARGS "$@""
