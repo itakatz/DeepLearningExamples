@@ -25,22 +25,30 @@ class ADSRBezier():
         e2, e3 = [adsr_cfg[key] * gain for key in ['d_lvl', 's_lvl']]
     
         #--- control points params - these are made symmetric around the control points, so the bezier curve is "nice"
-        c1, c2, c3, c4, c5, c6 = .8, .5, .4, .1, 1.2, 0.
+        #c1, c2, c3, c4, c5, c6 = .8, .5, .4, .1, 1.2, 0.
+        # DEBUG: 
+        c1, c2, c3, c4, c5, c6 = .8, .5, .4, .1, 0.8, 0.
         
         #=== Attack
         p_attack = [[n0, e0],  [c1 * n1, e0],      [c2 * n1, e1],          [n1, e1]]
         Ax, Ay =  bezier_curve(p_attack, nA)    
+        
         #=== Decay
         de1 = (e1 - e2)
         p_decay = [[n1, e1], [n1 + c2 * nD, e1], [n2 - c2 * nD, e2 + c3 * de1], [n2, e2]]
         Dx, Dy =  bezier_curve(p_decay, nD)    
+        
         #--- Sustain
         de2 = (e2 - e3)
-        p_sustain = [[n2, e2], [n2 + c2 * nD, e2 - c3 * de1], [n3 - c3 * nS, e3 + c4 * de2], [n3, e3]]
+        dx, dy = c3 * nS, c4 * de2
+        slope3 = dy / dx #--- slope = dy / dx
+        p_sustain = [[n2, e2], [n2 + c2 * nD, e2 - c3 * de1], [n3 - dx, e3 + slope3 * dx], [n3, e3]]
         Sx, Sy =  bezier_curve(p_sustain, nS)    
-        #--- Release
+        
+        #--- Release (make sure the sustain point 3 and release point 2 are on the same line (with slope given by "slope3")
         de3 = (e3 - e4)
-        p_release = [[n3, e3], [n3 + c3 * nS, e3 - c4 * de2], [n4 - c5 * nR, e4 + c6 * de3], [n4, e4]]
+        dx = min(c3 * nS, c5 * nR)
+        p_release = [[n3, e3], [n3 + dx, e3 - slope3 * dx], [n4 - c5 * nR, e4 + c6 * de3], [n4, e4]]
         Rx, Ry =  bezier_curve(p_release, nR)  
 
         if verbose:
@@ -63,7 +71,7 @@ class ADSRBezier():
         x_env = np.arange(n0, n4 + 1)
         env = f_intrp(x_env)
         
-        return env
+        return env, [np.r_[p] for p in [p_attack, p_decay, p_sustain, p_release]]
         
 def get_bezier_parameters(X, Y, degree=3):
     """ Least square qbezier fit using penrose pseudoinverse.

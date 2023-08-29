@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import sys
+import time
 import pickle
 import torch
 import numpy as np
@@ -45,14 +46,15 @@ import librosa.display
 
 def load_generator_model(model_path, device = 'cuda'):
     DEVICE = device #'cuda' # 'cpu' or 'cuda'       
-    assert DEVICE == 'cuda', 'ERROR: cpu not supported yet (mel code assumes torch tensors)'
+    #assert DEVICE == 'cuda', 'ERROR: cpu not supported yet (mel code assumes torch tensors)'
     
     #m_path = '../results/2023_01_20_hifigan_ssynth44khz_synthesized_input/hifigan_gen_checkpoint_10000.pt'
     #m_path = '../results/2023_05_15_hifigan_ssynth44khz_synthesized_input_16k_spl0.5/hifigan_gen_checkpoint_3000.pt'
     #m_path = '../results/2023_05_28_hifigan_ssynth44khz_synthesized_input_16k_spl0.5_nonorm/hifigan_gen_checkpoint_3000.pt'
     m_path = model_path
+    map_loc = None if DEVICE == 'cuda' else torch.device('cpu')
     
-    checkpoint = torch.load(m_path)
+    checkpoint = torch.load(m_path, map_location = map_loc)
     train_config = checkpoint['train_setup']
     sampling_rate = train_config['sampling_rate']
     gen_config = checkpoint['config']
@@ -79,8 +81,10 @@ def generate_from_audio(x, hifigan_gen, return_numpy_arr = True):
     '''
     x = array_to_torch(x)    
     mel = g_mel.get_spec(x)
-        
-    x_hat = hifigan_gen(mel.cuda())
+
+    if torch.cuda.is_available():
+        mel = mel.cuda()
+    x_hat = hifigan_gen(mel)
     if return_numpy_arr:
         x_hat = x_hat[0].cpu().detach().numpy()[0]
     
@@ -106,7 +110,7 @@ def run_on_validation_set(gen, denoiser, flist_path, num_files = None, return_fi
 
     #wav_fnm = '../data_ssynth/wavs_synth_10h/01_Free_Improv_dynamic_mic_phrase000.wav'
     synth_wavs_folder = 'wavs_synth_16k_spl0.5' # 'wavs_synth_10h'
-
+    times_lens = []
     mel_loss = np.zeros(n_files)
     mel_len = np.zeros(n_files)
     for file_index in tqdm(range(n_files)): #[5] #1
@@ -124,8 +128,11 @@ def run_on_validation_set(gen, denoiser, flist_path, num_files = None, return_fi
         #--- convert to float in [-1., 1.]
         y = y.astype(np.float32) / np.float32(max_wav_value)
         y_target = y_target.astype(np.float32) / np.float32(max_wav_value)
-    
+
+        t0 = time.time()
         y_hat = generate_from_audio(y, gen, return_numpy_arr = False)
+        t1 = time.time()
+        times_lens.append((t1 - t0, len(y) / sr))
         y_hat_den = denoiser(y_hat.squeeze(1), denoising_strength)
         y_hat = y_hat[0].cpu().detach().numpy()[0]
         y_hat_den = y_hat_den[0].cpu().detach().numpy()[0]
@@ -152,7 +159,7 @@ def run_on_validation_set(gen, denoiser, flist_path, num_files = None, return_fi
     # ax.plot(mel_hat[:,k1:k2].mean(1))
     # ax.grid()
     
-    return mel_loss, mel_len, yret
+    return mel_loss, mel_len, yret, times_lens
 
 def synthetic2octaves(gen, denoiser, sampling_rate):
     ''' I define a naive ADSR envelopes with straight lines, probably not the best option
