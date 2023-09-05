@@ -98,6 +98,8 @@ def midi_phrase_from_dataframe(p, midi_df, sr):
     t0 = p.sample_start / sr
     t1 = p.sample_end / sr
     midi_p = midi_df[(midi_df.ts_sec >= t0) & (midi_df.ts_sec <= t1)]
+    if midi_p.shape[0] == 0:
+        return midi_p
     
     #--- check for missing note_off (at end) or note_on (at start)
     first_note = midi_p.iloc[0]
