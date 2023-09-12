@@ -22,8 +22,14 @@ export TORCH_CUDNN_V8_API_ENABLED=1
 
 : ${FINE_TUNE_DIR:=""}
 
+#--- Generator arguments
+: ${GENERATOR_DROPOUT:=0}
+ARGS+=" --generator_dropout $GENERATOR_DROPOUT"
+: ${GENERATOR_DROPOUT_FLAGS:=[False,False,False,False]}
+ARGS+=" --upsample_apply_dropout $GENERATOR_DROPOUT_FLAGS"
 # presets of the generator, see original impl here: https://github.com/jik876/hifi-gan
 # the default params are V1 
+
 : ${GENERATOR_VER:="V1"}
 if [ "$GENERATOR_VER" = "V2" ]; then
     ARGS+=" --upsample_initial_channel 128"

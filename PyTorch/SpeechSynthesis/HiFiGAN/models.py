@@ -153,11 +153,13 @@ def get_model_config(model_name, args, ckpt_config=None):
             # generator architecture
             upsample_rates=args.upsample_rates,
             upsample_kernel_sizes=args.upsample_kernel_sizes,
+            upsample_apply_dropout=args.upsample_apply_dropout,
             upsample_initial_channel=args.upsample_initial_channel,
             resblock=args.resblock,
             resblock_kernel_sizes=args.resblock_kernel_sizes,
             resblock_dilation_sizes=args.resblock_dilation_sizes,
             num_mel_filters=args.num_mels,
+            generator_dropout=args.generator_dropout
         )
     elif model_name == 'WaveGlow':
         model_config = dict(

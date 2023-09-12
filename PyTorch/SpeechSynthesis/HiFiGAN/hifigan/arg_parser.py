@@ -27,6 +27,9 @@ def parse_hifigan_args(parent, add_help=False):
     hfg.add_argument('--upsample_kernel_sizes', default=[16, 16, 4, 4],
                      type=literal_eval_arg,
                      help='Upsample kernel sizes')
+    hfg.add_argument('--upsample_apply_dropout', default=[False, False, False, False],
+                     type=literal_eval_arg,
+                     help='Upsample flags to apply dropout')
     hfg.add_argument('--upsample_initial_channel', default=512, type=int,
                      help='Upsample initial channel')
     hfg.add_argument('--resblock', default='1', type=str,
@@ -36,7 +39,10 @@ def parse_hifigan_args(parent, add_help=False):
                      help='Resblock kernel sizes')
     hfg.add_argument('--resblock_dilation_sizes', type=literal_eval_arg,
                      default=[[1, 3, 5], [1, 3, 5], [1, 3, 5]],
-                     help='Resblock dilation sizes'),
+                     help='Resblock dilation sizes')
+    hfg.add_argument('--generator_dropout', type=float,
+                     default=0,
+                     help='Generator dropout')
 
     hfg = parser.add_argument_group('HiFi-GAN discriminator parameters')
     hfg.add_argument('--mpd_periods', default=[2, 3, 5, 7, 11],
@@ -44,6 +50,9 @@ def parse_hifigan_args(parent, add_help=False):
                       help='Periods of MultiPeriodDiscriminator')
     hfg.add_argument('--concat_fwd', action='store_true',
                       help='Faster Discriminators (requires more GPU memory)')
+    #hfg.add_argument('--discriminator_dropout', type=float,
+    #                 default=0,
+    #                 help='Discriminator dropout')
     hfg.add_argument('--hifigan-config', type=str, default=None, required=False,
                      help='Path to a HiFi-GAN config .json'
                           ' (if provided, overrides model architecture flags)')

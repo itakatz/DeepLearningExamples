@@ -42,7 +42,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import AvgPool1d, Conv1d, Conv2d, ConvTranspose1d
+from torch.nn import AvgPool1d, Conv1d, Conv2d, ConvTranspose1d, Dropout
 from torch.nn.utils import remove_weight_norm, spectral_norm, weight_norm
 
 from common import filter_warnings
@@ -79,6 +79,7 @@ class ResBlock1(nn.Module):
         super().__init__()
         self.conf = conf
         self.lrelu_slope = LRELU_SLOPE
+        #self.dropout = Dropout(conf.generator_dropout) if conf.generator_dropout > 0. else None
 
         ch, ks = channels, kernel_size
         self.convs1 = nn.Sequential(*[
@@ -101,6 +102,9 @@ class ResBlock1(nn.Module):
             xt = c1(xt)
             xt = F.leaky_relu(xt, self.lrelu_slope)
             xt = c2(xt)
+            #if self.dropout is not None:
+            #    xt = self.dropout(xt)
+
             x = xt + x
         return x
 
@@ -147,6 +151,10 @@ class Generator(nn.Module):
         self.conf = conf
         self.num_kernels = len(conf.resblock_kernel_sizes)
         self.num_upsamples = len(conf.upsample_rates)
+        if 'generator_dropout' in conf and 'upsample_apply_dropout' in conf and conf.generator_dropout > 0.:
+            self.dropout = Dropout(conf.generator_dropout)
+        else:
+            self.dropout = None
 
         self.conv_pre = weight_norm(
             Conv1d(conf.num_mel_filters, conf.upsample_initial_channel, 7, 1, padding=3))
@@ -209,7 +217,9 @@ class Generator(nn.Module):
     def forward(self, x):
         x = self.conv_pre(x)
 
-        for upsample_layer, resblock_group in zip(self.ups, self.resblocks):
+        for j, (upsample_layer, resblock_group) in enumerate(zip(self.ups, self.resblocks)):
+            if self.dropout is not None and self.conf.upsample_apply_dropout[j]:
+                x = self.dropout(x)
             x = F.leaky_relu(x, self.lrelu_slope)
             x = upsample_layer(x)
             xs = 0
@@ -217,8 +227,11 @@ class Generator(nn.Module):
                 xs += resblock(x)
             x = xs / self.num_kernels
         x = F.leaky_relu(x)
-
+        
         x = self.conv_post(x)
+        #if self.dropout is not None:
+        #    x = self.dropout(x)
+
         x = torch.tanh(x)
         return x
 
