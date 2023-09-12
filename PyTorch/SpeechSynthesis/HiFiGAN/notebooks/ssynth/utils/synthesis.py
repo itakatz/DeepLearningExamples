@@ -40,7 +40,7 @@ def additive_synth_sawtooth(freq, env, sampling_rate, additive_synth_k = None, m
     #--- interpolate (upsample) to sampling-rate grid, if needed
     if sampling_rate_new is not None:
         tmax = len(freq) * dt
-        t_old = np.arange(0, tmax, dt)
+        t_old = np.arange(0, len(freq)) * dt #np.arange(0, tmax, dt)
         fintrp = interp1d(t_old, freq)
         dt = 1 / sampling_rate_new
         t_new = np.arange(0, tmax, dt)
@@ -232,5 +232,7 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
     gain = np.sqrt((x**2).mean()) / np.sqrt((seg**2).mean()) 
     x /= gain
     env /= gain
+
+    raw_pitch = dict(freq = f1, vflag = vflag1, vprob = vprob1)
     
-    return x, env, fnew
+    return x, env, fnew, raw_pitch
