@@ -215,8 +215,11 @@ denoising_strength = 0.05
     
 if __name__ == '__main__':  
     #denoising_strength = 0.05
-    gen_path = '../results/2023_05_28_hifigan_ssynth44khz_synthesized_input_16k_spl0.5_nonorm/hifigan_gen_checkpoint_3000.pt'
-    gen, denoiser, train_cfg = load_generator_model(gen_path)    
+    #gen_path = '../results/2023_05_28_hifigan_ssynth44khz_synthesized_input_16k_spl0.5_nonorm/hifigan_gen_checkpoint_3000.pt'
+    gen_path = '../results/2023_09_05_hifigan_ssynth44khz_synthesized_input_16k_spl2_nonorm/hifigan_gen_checkpoint_2000.pt'
+    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu' # 'cuda'
+    gen, denoiser, train_cfg = load_generator_model(gen_path, device = DEVICE)  
+    gen.eval()
     
     #--- define the MEL spectrum method
     #--- in hifigan code they use 2 implementations
