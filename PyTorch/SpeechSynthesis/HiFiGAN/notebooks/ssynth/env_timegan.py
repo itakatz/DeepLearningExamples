@@ -148,8 +148,8 @@ def get_env_train_val_data(batch_size = 32, sample_dur_sec = 0.5, history_len = 
     return env_data_train_loader, env_data_val_loader
 
 if __name__ == '__main__':
-    from TimeGAN_pytorch.options import Options
-    from TimeGAN_pytorch.lib.env_timegan import EnvelopeTimeGAN
+    from TimeGAN_pytorch_fork.options import Options
+    from TimeGAN_pytorch_fork.lib.env_timegan import EnvelopeTimeGAN
     batch_size = 64
     sample_sec = 1 #0.5
     history_len = 6
