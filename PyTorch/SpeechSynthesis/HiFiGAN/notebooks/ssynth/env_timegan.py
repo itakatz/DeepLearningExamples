@@ -9,8 +9,9 @@ from scipy.signal import butter, sosfiltfilt
 
 from torch.utils.data import Dataset, DataLoader
 
-import sys
-sys.path.append('/home/mlspeech/itamark/git_repos')
+#--- I created symlink to the TimeGAN_pytorch_fork folder, so no need to add ~/git_repos to path
+#import sys
+#sys.path.append('/home/mlspeech/itamark/git_repos')
 
 pd_cfg = dict(win = 1024, ac_win = 512, hop = 256)  
 range_hz = midi.MidiUtils.alto_sax_range_pmhs_hz  
@@ -154,13 +155,18 @@ if __name__ == '__main__':
     sample_sec = 1 #0.5
     history_len = 6
     train_loader, val_loader = get_env_train_val_data(batch_size, sample_sec, history_len)
+
     opt = Options().parse()
     #--- different no. of epoch for embed/supervised and for joint training
     opt.num_epochs_es = 250 #opt.iteration
     opt.num_epochs = opt.iteration
-    opt.z_dim = history_len #1 # number of features per sequence frame
-    opt.z_dim_out = 1
-    opt.seq_len = 167 # 86 - history_len + 1 #344*2+1
+    
+
+    x, xout, t = train_loader.dataset[0] #--- get a sample for the dims
+    opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
+    opt.z_dim = x.shape[1] #history_len #1 # number of features per sequence frame
+    opt.z_dim_out = xout.shape[1] #1
+    
     #opt.batch_size = batch_size
     #opt.module = 'gru'
     #opt.outf = './output_TMP'
