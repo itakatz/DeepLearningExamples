@@ -13,8 +13,8 @@
 # limitations under the License.
 
 #ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:21.12-py3
-#ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:22.12-py3
-ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:23.08-py3
+ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:22.12-py3
+#ARG FROM_IMAGE_NAME=nvcr.io/nvidia/pytorch:23.08-py3
 FROM ${FROM_IMAGE_NAME}
 
 ENV PYTHONPATH /workspace/hifigan
