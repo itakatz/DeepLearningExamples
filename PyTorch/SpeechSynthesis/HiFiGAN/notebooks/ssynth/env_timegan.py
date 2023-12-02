@@ -1,5 +1,7 @@
 from utils import midi
 
+import os
+import glob
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
@@ -7,6 +9,7 @@ import librosa
 #from scipy.interpolate import UnivariateSpline
 from scipy.signal import butter, sosfiltfilt
 
+import torch
 from torch.utils.data import Dataset, DataLoader
 
 #--- I created symlink to the TimeGAN_pytorch_fork folder, so no need to add ~/git_repos to path
@@ -19,7 +22,11 @@ range_hz = midi.MidiUtils.alto_sax_range_pmhs_hz
 class EnvelopesDataset(Dataset):
     def __init__(self, data_dir, filelist, env_params, sample_len_sec, history_len_samples = 1, cache = True, smoothing = False, seed = 1234):
         self.data_dir = data_dir #    data_dir = '../../data_ssynth'
+        self.cache_dir = './cache'
         
+        if cache:
+            self.cache_flist = glob.glob(f'{self.cache_dir}/*')
+
         with open(filelist, 'r') as f:
             flist = f.readlines()
         #--- parse phrase ids from list of files
@@ -36,6 +43,7 @@ class EnvelopesDataset(Dataset):
         self.env_cache = {}
         self.smoothing = smoothing
         self.rng = np.random.default_rng(seed)
+        self.sampling_rate = 44100 #--- hard code since we need to know it in case we don't load wavs at all (if reading features only from cache)
         filt_order = 2
         filt_cutoff_hz = 20
         self.lowpass_sos = butter(filt_order, filt_cutoff_hz, output = 'sos', fs = 44100 / env_params['hop_len_samples'])
@@ -50,8 +58,15 @@ class EnvelopesDataset(Dataset):
             return 0
 
     def __getitem__(self, index):
-        if not self.cache or index not in self.env_cache:
-            pinfo = self.phrase_df.iloc[index]
+        pinfo = self.phrase_df.iloc[index]
+        cache_fnm = f'{self.cache_dir}/{pinfo.phrase_id}.pt'
+        
+        hop_len = self.env_params['hop_len_samples'] #256
+        frame_len = self.env_params['frame_len_samples'] #256
+        if self.sample_len is None:
+            self.sample_len = int(self.sample_len_sec * self.sampling_rate / hop_len)
+
+        if not self.cache or cache_fnm not in self.cache_flist:  #index not in self.env_cache:
             wav_fnm = pinfo['file_nm']
             
             if False:
@@ -71,24 +86,22 @@ class EnvelopesDataset(Dataset):
             wav_fnm = f'{self.data_dir}/wavs/{pinfo.phrase_id}.wav'
             #seg, sr = librosa.load(wav_fnm, sr = sampling_rate)
             seg, sampling_rate = librosa.load(wav_fnm, sr = None)
-            hop_len = self.env_params['hop_len_samples'] #256
-            frame_len = self.env_params['frame_len_samples'] #256
+            if sampling_rate != self.sampling_rate:
+                raise ValueError(f'sampling rate is assumed to be {self.sampling_rate}, wav loaded has {sampling_rate}')
 
-            if self.sample_len is None:
-                self.sample_len = int(self.sample_len_sec * sampling_rate / hop_len)
-            
             #--- extract env
             env = librosa.feature.rms(y = seg, frame_length = frame_len, hop_length = hop_len, center = True)
             env = 1.3 * np.sqrt(2) * env[0]
 
             #--- extract pitch: use frame and window (auto-corr window) from pd_cfg, but use hop from the env_params so we get the same rate for env and pitch
-            f1, vflag1, vprob1 = librosa.pyin(seg,
+            pitch, vflag, vprob = librosa.pyin(seg,
                                               fmin = range_hz[0],
                                               fmax = range_hz[1],
                                               sr = sampling_rate,
                                               frame_length = pd_cfg['win'], 
                                               win_length = pd_cfg['ac_win'],
                                               hop_length = hop_len,
+                                              resolution = 0.05, #--- 5 cents pitch resolution
                                               center = True,
                                               max_transition_rate = 100)
             # times1 = librosa.times_like(f1, sr = sr, hop_length = hop)
@@ -105,10 +118,13 @@ class EnvelopesDataset(Dataset):
 
             env = env.astype(np.float32)
         else:
-            env = self.env_cache[index]
+            #env = self.env_cache[index]
+            env, pitch, vprob, vflag = torch.load(cache_fnm)
 
-        if self.cache and index not in self.env_cache:
-            self.env_cache[index] = env
+        if self.cache and cache_fnm not in self.cache_flist: #index not in self.env_cache:
+            #self.env_cache[index] = env
+            torch.save([env, pitch, vprob, vflag], cache_fnm)
+            self.cache_flist.append(cache_fnm)
 
         env_len = env.shape[0]
         if env_len > self.sample_len:
@@ -139,7 +155,8 @@ class EnvelopesDataset(Dataset):
 def get_env_train_val_data(batch_size = 32, sample_dur_sec = 0.5, history_len = 1):
     env_params = dict(frame_len_samples = 512, hop_len_samples = 256)
     apply_smoothing = True
-    data_dir = '/home/mlspeech/itamark/ssynth/git_repos/DeepLearningExamples/PyTorch/SpeechSynthesis/HiFiGAN/data_ssynth'
+    home_dir = os.environ['HOME']
+    data_dir = f'{home_dir}/ssynth/git_repos/DeepLearningExamples/PyTorch/SpeechSynthesis/HiFiGAN/data_ssynth'
     env_data_train = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_train.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing)
     env_data_val = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_val.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing)
 
@@ -166,7 +183,7 @@ if __name__ == '__main__':
     opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
     opt.z_dim = x.shape[1] #history_len #1 # number of features per sequence frame
     opt.z_dim_out = xout.shape[1] #1
-    
+
     #opt.batch_size = batch_size
     #opt.module = 'gru'
     #opt.outf = './output_TMP'

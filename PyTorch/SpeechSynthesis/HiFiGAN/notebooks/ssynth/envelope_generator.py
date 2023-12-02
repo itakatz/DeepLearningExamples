@@ -64,8 +64,9 @@ if __name__ == '__main__':
 
     h1 = fig.to_html(include_plotlyjs = 'cdn', full_html = False)
     h2 = Audio(seg, rate = sampling_rate, normalize = False)._repr_html_()
-    with open('../plots/seg_env_audio.html', 'w') as f:
-        f.write('\n'.join([h1, h2]))
+    
+    #with open('../plots/seg_env_audio.html', 'w') as f:
+    #    f.write('\n'.join([h1, h2]))
 
     #TODO
     # apply 1 simple onset fix: roll onset backwards while:
