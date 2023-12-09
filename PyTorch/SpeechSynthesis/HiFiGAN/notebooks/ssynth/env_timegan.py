@@ -62,7 +62,7 @@ class EnvelopesDataset(Dataset):
         cache_fnm = f'{self.cache_dir}/{pinfo.phrase_id}.pt'
         
         hop_len = self.env_params['hop_len_samples'] #256
-        frame_len = self.env_params['frame_len_samples'] #256
+        frame_len = self.env_params['frame_len_samples'] #512
         if self.sample_len is None:
             self.sample_len = int(self.sample_len_sec * self.sampling_rate / hop_len)
 
