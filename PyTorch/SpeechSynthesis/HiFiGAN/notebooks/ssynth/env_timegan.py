@@ -181,9 +181,8 @@ if __name__ == '__main__':
 
     opt = Options().parse()
     #--- different no. of epoch for embed/supervised and for joint training
-    opt.num_epochs_es = 10 #250 #opt.iteration
-    opt.num_epochs = 10 # opt.iteration
-    
+    opt.num_epochs_es = 50 #250 #opt.iteration
+    opt.num_epochs = 350 # opt.iteration
 
     x, xout, t = train_loader.dataset[0] #--- get a sample for the dims
     opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
