@@ -164,7 +164,7 @@ class EnvelopesDataset(Dataset):
         
         #--- add note features per frame: note-id, is-note, time-since-last-onset, time-since-last-offset
         midi_p = midi_p.reset_index(drop = True)
-        note_id = np.zeros_like(env, dtype = int)
+        note_id = np.zeros_like(env, dtype = np.int32)
         is_note = np.zeros_like(env, dtype = np.float32)
         frames_ind = np.round((midi_p['ts_sec'].to_numpy(dtype = float) - t0) * 44100 / 256).astype(int)
         #--- treat out-of-range frame index - TODO check why it happens, in method "midi.midi_phrase_from_dataframe"
@@ -191,7 +191,7 @@ class EnvelopesDataset(Dataset):
         else:
             pad_sz = (self.sample_len - env_len, self.history_len_samples)
             env     = np.r_[env,     np.zeros(pad_sz, dtype = np.float32)]
-            note_id = np.r_[note_id, np.zeros(pad_sz, dtype = np.float32)]
+            note_id = np.r_[note_id, np.zeros(pad_sz, dtype = np.int32)]
             is_note = np.r_[is_note, np.zeros(pad_sz, dtype = np.float32)]
 
         #--- set input and output
