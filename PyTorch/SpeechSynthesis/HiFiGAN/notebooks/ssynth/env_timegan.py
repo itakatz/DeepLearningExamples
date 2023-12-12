@@ -9,19 +9,58 @@ import librosa
 #from scipy.interpolate import UnivariateSpline
 from scipy.signal import butter, sosfiltfilt
 
+import math
 import torch
+from torch import nn, Tensor
 from torch.utils.data import Dataset, DataLoader
 
 #--- I created symlink to the TimeGAN_pytorch_fork folder, so no need to add ~/git_repos to path
 #import sys
 #sys.path.append('/home/mlspeech/itamark/git_repos')
 
-class _gCFG():
+
+class gCFG():
     pd_cfg = dict(win = 1024, ac_win = 512, hop = 256)  
     range_hz = midi.MidiUtils.alto_sax_range_pmhs_hz  
     batch_size = 64
     sample_sec = 1 #0.5
     history_len = 6
+
+class PositionalEncoding(nn.Module):
+    ''' copied from here: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#define-the-model
+    '''
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
+
+'''
+class PositionalEncoding():
+	def __init__(self, d_model, max_len: int = 5000):
+        position = np.arange(max_len)[:, np.newaxis]
+        div_term = np.exp(np.arange(0, d_model, 2) * (-np.log(10000.0) / d_model))
+        self.pe = np.zeros((max_len, 1, d_model), dtype = np.float32)
+        self.pe[:, 0, 0::2] = np.sin(position * div_term)
+        self.pe[:, 0, 1::2] = np.cos(position * div_term)
+	
+	def encode(self, x):
+        n = x.shape[0]
+        return x + self.pe[:n]
+'''
 
 class EnvelopesDataset(Dataset):
     def __init__(self, data_dir, filelist, env_params, sample_len_sec, history_len_samples = 1, cache = True, smoothing = False, seed = 1234):
@@ -92,11 +131,11 @@ class EnvelopesDataset(Dataset):
 
             #--- extract pitch: use frame and window (auto-corr window) from pd_cfg, but use hop from the env_params so we get the same rate for env and pitch
             pitch, vflag, vprob = librosa.pyin(seg,
-                                              fmin = _gCFG.range_hz[0],
-                                              fmax = _gCFG.range_hz[1],
+                                              fmin = gCFG.range_hz[0],
+                                              fmax = gCFG.range_hz[1],
                                               sr = sampling_rate,
-                                              frame_length = _gCFG.pd_cfg['win'], 
-                                              win_length = _gCFG.pd_cfg['ac_win'],
+                                              frame_length = gCFG.pd_cfg['win'], 
+                                              win_length = gCFG.pd_cfg['ac_win'],
                                               hop_length = hop_len,
                                               resolution = 0.05, #--- 5 cents pitch resolution
                                               center = True,
@@ -122,20 +161,43 @@ class EnvelopesDataset(Dataset):
             #self.env_cache[index] = env
             torch.save([env, midi_p, t0, pitch, vprob, vflag], cache_fnm)
             self.cache_flist.append(cache_fnm)
+        
+        #--- add note features per frame: note-id, is-note, time-since-last-onset, time-since-last-offset
+        midi_p = midi_p.reset_index(drop = True)
+        note_id = np.zeros_like(env, dtype = int)
+        is_note = np.zeros_like(env, dtype = np.float32)
+        frames_ind = np.round((midi_p['ts_sec'].to_numpy(dtype = float) - t0) * 44100 / 256).astype(int)
+        #--- treat out-of-range frame index - TODO check why it happens, in method "midi.midi_phrase_from_dataframe"
+        frames_ind = np.maximum(0, frames_ind)
+        frames_ind = np.minimum(len(env), frames_ind)
 
+        for k in range(0, len(midi_p), 2):
+            i0, i1 = frames_ind[k : k + 2]
+            note_id[i0 : i1] = midi_p.iloc[k].note
+            is_note[i0 : i1] = 1
+
+        #--- create a view which includes history
+        env = sliding_window_view(env, self.history_len_samples)
+        note_id = sliding_window_view(note_id, self.history_len_samples)
+        is_note = sliding_window_view(is_note, self.history_len_samples)
+        
+        #--- samplea sub-sequence of fixed length
         env_len = env.shape[0]
         if env_len > self.sample_len:
             start_ind = self.sample_start_index(env_len) # self.rng.integers(0, env_len - self.sample_len) # np.random.randint(0, env_len - self.sample_len)
-            env = env[start_ind : start_ind + self.sample_len]
+            env     =       env[start_ind : start_ind + self.sample_len].copy()
+            note_id =   note_id[start_ind : start_ind + self.sample_len].copy()
+            is_note =   is_note[start_ind : start_ind + self.sample_len].copy()
         else:
-            env = np.r_[env, np.zeros(self.sample_len - env_len, dtype = np.float32)]
-        
-        #env = env[:, np.newaxis]
-        env = sliding_window_view(env, self.history_len_samples).copy()
+            pad_sz = (self.sample_len - env_len, self.history_len_samples)
+            env     = np.r_[env,     np.zeros(pad_sz, dtype = np.float32)]
+            note_id = np.r_[note_id, np.zeros(pad_sz, dtype = np.float32)]
+            is_note = np.r_[is_note, np.zeros(pad_sz, dtype = np.float32)]
 
         #--- set input and output
-        inp, out, env_len = env, env[:, -1:], env.shape[0]
-        return inp, out, env_len
+        env_inp, env_out, env_len = env, env[:, -1:], env.shape[0]
+
+        return env_inp, env_out, env_len, note_id, is_note
         #--- get envelope 
         #max_freq_hz = 16000
         #pd_cfg = dict(win = 1024, 
@@ -166,7 +228,7 @@ def save_features_to_cache(n_workers = 32):
     ''' just read all samples from the dataset class, so features are saved to cache
     '''
     from multiprocessing.pool import Pool
-    train_loader, val_loader = get_env_train_val_data(_gCFG.batch_size, _gCFG.sample_sec, _gCFG.history_len)
+    train_loader, val_loader = get_env_train_val_data(gCFG.batch_size, gCFG.sample_sec, gCFG.history_len)
 
     for ds in [train_loader.dataset, val_loader.dataset]:
         N = len(ds)
@@ -177,14 +239,15 @@ def save_features_to_cache(n_workers = 32):
 if __name__ == '__main__':
     from TimeGAN_pytorch_fork.options import Options
     from TimeGAN_pytorch_fork.lib.env_timegan import EnvelopeTimeGAN
-    train_loader, val_loader = get_env_train_val_data(_gCFG.batch_size, _gCFG.sample_sec, _gCFG.history_len)
+    train_loader, val_loader = get_env_train_val_data(gCFG.batch_size, gCFG.sample_sec, gCFG.history_len)
 
     opt = Options().parse()
     #--- different no. of epoch for embed/supervised and for joint training
     opt.num_epochs_es = 50 #250 #opt.iteration
     opt.num_epochs = 350 # opt.iteration
+    opt.batch_size = gCFG.batch_size
 
-    x, xout, t = train_loader.dataset[0] #--- get a sample for the dims
+    x, xout, t, note_id, is_note = train_loader.dataset[0] #--- get a sample for the dims
     opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
     opt.z_dim = x.shape[1] #history_len #1 # number of features per sequence frame
     opt.z_dim_out = xout.shape[1] #1
