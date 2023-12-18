@@ -22,9 +22,9 @@ from torch.utils.data import Dataset, DataLoader
 class gCFG():
     pd_cfg = dict(win = 1024, ac_win = 512, hop = 256)  
     range_hz = midi.MidiUtils.alto_sax_range_pmhs_hz  
-    batch_size = 64
-    sample_sec = 1 #0.5
-    history_len = 6
+    batch_size = 128
+    sample_sec = 1 #2  #0.5
+    history_len = 16 #32 # 6 # 32 frames with hop of 256 at 44100 Hz, is approx 18.5 msec of recent history
 
 class PositionalEncoding(nn.Module):
     ''' copied from here: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#define-the-model
@@ -63,9 +63,9 @@ class PositionalEncoding():
 '''
 
 class EnvelopesDataset(Dataset):
-    def __init__(self, data_dir, filelist, env_params, sample_len_sec, history_len_samples = 1, cache = True, smoothing = False, seed = 1234):
+    def __init__(self, data_dir, filelist, env_params, sample_len_sec, history_len_samples = 1, cache = True, smoothing = False, seed = 1234, cache_dir = './feature_cache'):
         self.data_dir = data_dir #    data_dir = '../../data_ssynth'
-        self.cache_dir = './feature_cache'
+        self.cache_dir = cache_dir #'./feature_cache'
         
         if cache:
             self.cache_flist = glob.glob(f'{self.cache_dir}/*')
@@ -153,51 +153,57 @@ class EnvelopesDataset(Dataset):
                 env[env < 0.] = 0.
 
             env = env.astype(np.float32)
+            
+            #--- add note features per frame: note-id, is-note, time-since-last-onset, time-since-last-offset
+            midi_p = midi_p.reset_index(drop = True)
+            note_id = np.zeros_like(env, dtype = np.int32)
+            note_en = np.zeros_like(env, dtype = np.float32)
+            is_note = np.zeros_like(env, dtype = np.float32)
+            frames_ind = np.round((midi_p['ts_sec'].to_numpy(dtype = float) - t0) * 44100 / 256).astype(int)
+            #--- treat out-of-range frame index - TODO check why it happens, in method "midi.midi_phrase_from_dataframe"
+            frames_ind = np.maximum(0, frames_ind)
+            frames_ind = np.minimum(len(env), frames_ind)
+
+            for k in range(0, len(midi_p), 2):
+                i0, i1 = frames_ind[k : k + 2]
+                note_en[i0 : i1] = np.median(env[i0:i1])
+                note_id[i0 : i1] = midi_p.iloc[k].note
+                is_note[i0 : i1] = 1
         else:
             #env = self.env_cache[index]
-            env, midi_p, t0, pitch, vprob, vflag = torch.load(cache_fnm)
-
+            env, midi_p, t0, pitch, vprob, vflag, note_id, note_en, is_note = torch.load(cache_fnm)
+        
+        #--- save to cache
         if self.cache and cache_fnm not in self.cache_flist: #index not in self.env_cache:
             #self.env_cache[index] = env
-            torch.save([env, midi_p, t0, pitch, vprob, vflag], cache_fnm)
+            torch.save([env, midi_p, t0, pitch, vprob, vflag, note_id, note_en, is_note], cache_fnm)
             self.cache_flist.append(cache_fnm)
-        
-        #--- add note features per frame: note-id, is-note, time-since-last-onset, time-since-last-offset
-        midi_p = midi_p.reset_index(drop = True)
-        note_id = np.zeros_like(env, dtype = np.int32)
-        is_note = np.zeros_like(env, dtype = np.float32)
-        frames_ind = np.round((midi_p['ts_sec'].to_numpy(dtype = float) - t0) * 44100 / 256).astype(int)
-        #--- treat out-of-range frame index - TODO check why it happens, in method "midi.midi_phrase_from_dataframe"
-        frames_ind = np.maximum(0, frames_ind)
-        frames_ind = np.minimum(len(env), frames_ind)
 
-        for k in range(0, len(midi_p), 2):
-            i0, i1 = frames_ind[k : k + 2]
-            note_id[i0 : i1] = midi_p.iloc[k].note
-            is_note[i0 : i1] = 1
-
-        #--- create a view which includes history
+        #--- create a view which includes history TODO we can have different history_len for each feature
         env = sliding_window_view(env, self.history_len_samples)
         note_id = sliding_window_view(note_id, self.history_len_samples)
+        note_en = sliding_window_view(note_en, self.history_len_samples)
         is_note = sliding_window_view(is_note, self.history_len_samples)
         
-        #--- samplea sub-sequence of fixed length
+        #--- samplea sub-sequence of fixed length 
         env_len = env.shape[0]
         if env_len > self.sample_len:
             start_ind = self.sample_start_index(env_len) # self.rng.integers(0, env_len - self.sample_len) # np.random.randint(0, env_len - self.sample_len)
             env     =       env[start_ind : start_ind + self.sample_len].copy()
+            note_en =   note_en[start_ind : start_ind + self.sample_len].copy()
             note_id =   note_id[start_ind : start_ind + self.sample_len].copy()
             is_note =   is_note[start_ind : start_ind + self.sample_len].copy()
         else:
             pad_sz = (self.sample_len - env_len, self.history_len_samples)
             env     = np.r_[env,     np.zeros(pad_sz, dtype = np.float32)]
             note_id = np.r_[note_id, np.zeros(pad_sz, dtype = np.int32)]
+            note_en = np.r_[note_en, np.zeros(pad_sz, dtype = np.float32)]
             is_note = np.r_[is_note, np.zeros(pad_sz, dtype = np.float32)]
 
         #--- set input and output
         env_inp, env_out, env_len = env, env[:, -1:], env.shape[0]
 
-        return env_inp, env_out, env_len, note_id, is_note
+        return env_inp, env_out, env_len, note_id, note_en, is_note
         #--- get envelope 
         #max_freq_hz = 16000
         #pd_cfg = dict(win = 1024, 
@@ -211,24 +217,24 @@ class EnvelopesDataset(Dataset):
     def __len__(self):
         return self.phrase_df.shape[0]
 
-def get_env_train_val_data(batch_size = 32, sample_dur_sec = 0.5, history_len = 1):
+def get_env_train_val_data(cache_dir, batch_size = 32, sample_dur_sec = 0.5, history_len = 1, workers = 0):
     env_params = dict(frame_len_samples = 512, hop_len_samples = 256)
     apply_smoothing = True
     home_dir = os.environ['HOME']
     data_dir = f'{home_dir}/ssynth/git_repos/DeepLearningExamples/PyTorch/SpeechSynthesis/HiFiGAN/data_ssynth'
-    env_data_train = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_train.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing)
-    env_data_val = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_val.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing)
+    env_data_train = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_train.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
+    env_data_val = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_val.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
 
-    env_data_train_loader = DataLoader(env_data_train, batch_size, shuffle = True)
-    env_data_val_loader = DataLoader(env_data_val, batch_size, shuffle = False)
+    env_data_train_loader = DataLoader(env_data_train, batch_size, shuffle = True, num_workers = workers)
+    env_data_val_loader = DataLoader(env_data_val, batch_size, shuffle = False, num_workers = workers)
 
     return env_data_train_loader, env_data_val_loader
 
-def save_features_to_cache(n_workers = 32):
+def save_features_to_cache(cache_dir, n_workers = 32):
     ''' just read all samples from the dataset class, so features are saved to cache
     '''
     from multiprocessing.pool import Pool
-    train_loader, val_loader = get_env_train_val_data(gCFG.batch_size, gCFG.sample_sec, gCFG.history_len)
+    train_loader, val_loader = get_env_train_val_data(cache_dir, gCFG.batch_size, gCFG.sample_sec, gCFG.history_len)
 
     for ds in [train_loader.dataset, val_loader.dataset]:
         N = len(ds)
@@ -237,17 +243,27 @@ def save_features_to_cache(n_workers = 32):
     
 
 if __name__ == '__main__':
+    import sys
     from TimeGAN_pytorch_fork.options import Options
     from TimeGAN_pytorch_fork.lib.env_timegan import EnvelopeTimeGAN
-    train_loader, val_loader = get_env_train_val_data(gCFG.batch_size, gCFG.sample_sec, gCFG.history_len)
 
+    #--- mimic input args
+    #input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
+    input_args = f'env_timegan.py --num_layer 3 --hidden_dim 64 --latent_dim 64 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_17_12_test --model EnvelopeTimeGAN --name test4_mean_bce'
+    sys.argv = input_args.split()
     opt = Options().parse()
+    
+    #--- data loaders
+    cache_dir = 'feature_cache2'
+    workers = 0 #opt.workers # using more then 1 process for loading just makes it slower (overhead of data to/from sub-process?)
+    train_loader, val_loader = get_env_train_val_data(cache_dir, gCFG.batch_size, gCFG.sample_sec, gCFG.history_len, workers)
+    
     #--- different no. of epoch for embed/supervised and for joint training
     opt.num_epochs_es = 50 #250 #opt.iteration
-    opt.num_epochs = 350 # opt.iteration
-    opt.batch_size = gCFG.batch_size
+    opt.num_epochs = 1000 # opt.iteration
+    #opt.batch_size = gCFG.batch_size
 
-    x, xout, t, note_id, is_note = train_loader.dataset[0] #--- get a sample for the dims
+    x, xout, t, note_id, note_en, is_note = train_loader.dataset[0] #--- get a sample for the dims
     opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
     opt.z_dim = x.shape[1] #history_len #1 # number of features per sequence frame
     opt.z_dim_out = xout.shape[1] #1
@@ -255,7 +271,17 @@ if __name__ == '__main__':
     #opt.batch_size = batch_size
     #opt.module = 'gru'
     #opt.outf = './output_TMP'
+    opt.average_seq_before_loss = True
     model = EnvelopeTimeGAN(opt, train_loader, val_loader)
     model.max_seq_len = opt.seq_len
     print(f'Options:\n{opt}')
+    count_parameters = lambda model: sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print('model params:')
+    tot = 0
+    for net in [model.net_note_embed, model.nete, model.netr, model.nets, model.netg, model.netd]:
+        num_params = count_parameters(net)
+        tot += num_params
+        print(f'{type(net).__name__}: number of params: {num_params}')
+    print(f'total params: {tot}')
+            
     model.train()
