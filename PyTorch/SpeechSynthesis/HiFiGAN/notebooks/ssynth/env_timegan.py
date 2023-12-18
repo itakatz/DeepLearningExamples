@@ -249,7 +249,7 @@ if __name__ == '__main__':
 
     #--- mimic input args
     #input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
-    input_args = f'env_timegan.py --num_layer 3 --hidden_dim 64 --latent_dim 64 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_17_12_test --model EnvelopeTimeGAN --name test4_mean_bce'
+    input_args = f'env_timegan.py --num_layer 3 --hidden_dim 64 --latent_dim 64 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_18_12_test --model EnvelopeTimeGAN --name test2_gen_mom_dim1'
     sys.argv = input_args.split()
     opt = Options().parse()
     
@@ -260,7 +260,7 @@ if __name__ == '__main__':
     
     #--- different no. of epoch for embed/supervised and for joint training
     opt.num_epochs_es = 50 #250 #opt.iteration
-    opt.num_epochs = 1000 # opt.iteration
+    opt.num_epochs = 250 # opt.iteration
     #opt.batch_size = gCFG.batch_size
 
     x, xout, t, note_id, note_en, is_note = train_loader.dataset[0] #--- get a sample for the dims
@@ -272,6 +272,11 @@ if __name__ == '__main__':
     #opt.module = 'gru'
     #opt.outf = './output_TMP'
     opt.average_seq_before_loss = True
+    opt.generator_loss_moments_axis = 1 # use "0" to calculate along batch (original impl, after bug fix), or "1" to calculate along the sequence (makes more sense)
+    #--- to load model:
+    #opt.resume = 'results/2023_17_12_test/test4_mean_bce/train/weights'
+    #opt.resume_epoch = 0
+
     model = EnvelopeTimeGAN(opt, train_loader, val_loader)
     model.max_seq_len = opt.seq_len
     print(f'Options:\n{opt}')
