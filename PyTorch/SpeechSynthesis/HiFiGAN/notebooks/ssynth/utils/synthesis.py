@@ -7,8 +7,31 @@ from .midi import MidiUtils, binary_array_to_seg_inds
 
 ''' This module contains methods to synthesize various signals that can be used as input to a HiFiGAN model
     Generally, methods which generate final audio using a trained hifigan model do *not* belong here.
+    TODO
+    1. Compare the sawtooth impl in "additive_synth_sawtooth" and inside the method "wav_midi_to_synth". We should use only 1 impl
+    2. Add aliased sawtooth (that is, without the anti-alias method of additive synthesis)
+    3. Add sine wave
 '''
 
+def freq_to_phi(freq, sr, normalized = False, phi0 = 0):
+    ''' output phase, "normalized" is in [0, 1], not "normalized" is in [0, 2*pi] '''
+    c = 1 if normalized else 2 * np.pi
+    dt = 1 / sr
+    phi = np.cumsum(c * freq * dt)
+    phi -= phi[0]
+    phi += phi0
+    return phi
+    
+def freq_to_sawtooth(freq, k_harm, sr, phi0 = 0):
+    ''' saw tooth using additive synthesis using k_harm harmonics (1 is only fundamnetal freq)'''
+    phi = freq_to_phi(freq, sr, phi0)
+    # to wrap: phi = (phi + np.pi) % (2 * np.pi) - np.pi
+    x = np.sin(phi) #(np.sin(phi) + .5*np.sin(2*phi) + .333*np.sin(3*phi) + .25*np.sin(4*phi))
+    for k in range(2, k_harm + 1):
+        x += (-1)**(k-1) * np.sin(k * phi) / k
+    x *= 2 / np.pi
+    return x #, phi
+    
 def get_num_harmonics(min_freq_src_hz, max_freq_src_hz, sr, max_freq_tgt_hz):
     fmin = max(MidiUtils.alto_sax_range_hz[0], min_freq_src_hz)
     

@@ -101,9 +101,17 @@ def get_audio_pauses(y, cfg, short_pause = False, verbose = 0):
     #--- pauses starts and ends
     st = np.where(np.diff((env_db_mf <= noise_th).astype(int)) == 1)[0]
     en = np.where(np.diff((env_db_mf <= noise_th).astype(int)) == -1)[0]
-    if(en[0] < st[0]):
-        st = np.r_[0, st]
     
+    #--- treat the case of env above th in start or end of envelope (end wo start at the beggining, or start wo end at the end)
+    if len(st) == len(en) + 1:
+        en = np.r_[en, len(env_db_mf) - 2] #--- add index to window before last, to make sure its ts_samples is not > len(y)
+    elif len(en) == len(st) + 1:
+        st = np.r_[0, st]
+
+    #--- this fails if one of [st, en] is empty (that's why I added the if above)
+    if(en[0] < st[0]):
+        st = np.r_[0, st]   
+ 
     if(en[-1] < st[-1]):
         #st = st[:-1] # BUG: this omits last phrase
         en = np.r_[en, len(env_db_mf) - 2] #--- add index to window before last, to make sure its ts_samples is not > len(y)
