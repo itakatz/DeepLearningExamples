@@ -17,6 +17,26 @@ class PhraseSegmentCfg():
         self.win_len_samples += (self.win_len_samples % 2) #--- make sure it's even
         self.win_hop_samples = self.win_len_samples // 2
 
+def split_audio_to_phrases(y, sr):
+    cfg = PhraseSegmentCfg(sr)
+    st, en, env_db = get_audio_pauses(y, cfg, verbose = False)
+    #assert(st[0] == cfg.win_hop_samples) #--- make sure first pause starts from audio's start 
+    print(f'found {st.shape[0]} pauses')
+
+    #--- treat too long segments
+    st, en = split_long_phrases(y, st, en, cfg)
+    print(f'After splitting long phrases: {st.shape[0]} pauses')
+
+    #--- treat too short segments
+    st, en = merge_short_phrases(st, en, cfg)
+    print(f'After merging short phrases: {st.shape[0]} pauses')
+    
+    #--- update duration array
+    seg_dur_sec = (st[1:] - en[:-1]) / sr
+    phrase_inds = np.c_[en[:-1], st[1:]]
+    
+    return phrase_inds, seg_dur_sec    
+
 #--- for each long sengment, re-run detection with smaller pause threshold. also, local noise-floor estimation will be more useful
 def split_long_phrases(y, st, en, cfg, verbose = False):
     seg_dur_sec = (st[1:] - en[:-1]) / cfg.sr

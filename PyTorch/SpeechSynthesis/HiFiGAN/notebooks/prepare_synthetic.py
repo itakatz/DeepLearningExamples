@@ -1,3 +1,5 @@
+import os
+import glob
 import numpy as np
      
 if __name__ == '__main__':
@@ -5,6 +7,8 @@ if __name__ == '__main__':
     num_harmonics = None # 10
     max_freq_hz = 16000
     spline_smoothing = 0.5 # set to None for no smoothing of amplitude envelope
+    data_folder = '/home/mlspeech/itamark/ssynth/git_repos/DeepLearningExamples/PyTorch/SpeechSynthesis/HiFiGAN/data_ssynth/wavs_raw'
+    flist = glob.glob(f'{data_folder}/*Free*dynamic_mic*.wav')
     
     suffix = f'{num_harmonics}h' if max_freq_hz is None else f'{int(max_freq_hz / 1000)}k'
     suffix += '' if spline_smoothing is None else f'_spl{spline_smoothing}'
