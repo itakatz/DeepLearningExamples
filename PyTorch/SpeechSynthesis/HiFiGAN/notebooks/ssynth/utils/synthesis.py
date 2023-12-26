@@ -1,6 +1,8 @@
 import numpy as np
 import librosa
 from scipy.signal import decimate, butter, dlti # resample_poly
+from scipy.signal import sosfiltfilt
+from scipy.signal import sawtooth as nbl_sawtooth
 from scipy.interpolate import UnivariateSpline, interp1d
 
 from .midi import MidiUtils, binary_array_to_seg_inds
@@ -13,6 +15,18 @@ from .midi import MidiUtils, binary_array_to_seg_inds
     3. Add sine wave
 '''
 
+def smooth_env_lowpass(env, sr, cfg, clip_below_min = True):
+    filt_order = cfg['order'] #2
+    filt_cutoff_hz = cfg['cutoff_hz'] #20
+    lowpass_sos = butter(filt_order, filt_cutoff_hz, output = 'sos', fs = sr)
+    env_min = env.min()
+    env = sosfiltfilt(lowpass_sos, env)
+    #--- filtering can output negative samples, so clip from below to min before filtering
+    if clip_below_min:
+        env[env < env_min] = env_min
+
+    return env
+
 def freq_to_phi(freq, sr, normalized = False, phi0 = 0):
     ''' output phase, "normalized" is in [0, 1], not "normalized" is in [0, 2*pi] '''
     c = 1 if normalized else 2 * np.pi
@@ -23,8 +37,15 @@ def freq_to_phi(freq, sr, normalized = False, phi0 = 0):
     return phi
     
 def freq_to_sawtooth(freq, k_harm, sr, phi0 = 0):
-    ''' saw tooth using additive synthesis using k_harm harmonics (1 is only fundamnetal freq)'''
-    phi = freq_to_phi(freq, sr, phi0)
+    ''' alias-free saw tooth using additive synthesis using k_harm harmonics 
+        You can get a sine-wave, by setting k_harm = 1
+        You can get a non band-limited (aliased) sawtooth (abbr. nbl_sawtooth), by setting k_harm = np.inf (as if summing infinite number of harmonics)
+    '''
+    phi = freq_to_phi(freq, sr, phi0 = phi0)
+    if np.isinf(k_harm):
+        x = nbl_sawtooth(phi + np.pi)  #--- add pi to use the same convention as I use with the bandlimited sawtooth, that is that sawtooth(0) = 0
+        return x
+
     # to wrap: phi = (phi + np.pi) % (2 * np.pi) - np.pi
     x = np.sin(phi) #(np.sin(phi) + .5*np.sin(2*phi) + .333*np.sin(3*phi) + .25*np.sin(4*phi))
     for k in range(2, k_harm + 1):
@@ -41,7 +62,7 @@ def get_num_harmonics(min_freq_src_hz, max_freq_src_hz, sr, max_freq_tgt_hz):
     new_sr_factor = [k for k in range(1, 10) if k * sr > new_sr][0]
     return num_harmonics, new_sr_factor
 
-def additive_synth_sawtooth(freq, env, sampling_rate, additive_synth_k = None, max_freq_hz = None):
+def additive_synth_sawtooth(freq, freq_ts, sampling_rate, additive_synth_k = None, max_freq_hz = None):
     ''' TDOO add code to synthesize up to f_max (and not a given number of harmonics)
         given input frequency and envelope sampled at sampling_rate, synthesize a band-limited
         sawtooth wave using additive synthesis of 10 (or k) harmonies
@@ -49,49 +70,43 @@ def additive_synth_sawtooth(freq, env, sampling_rate, additive_synth_k = None, m
     #--- set number of harmonics of sawtooth wave
     if additive_synth_k is not None:
         should_downsample = False
-        sampling_rate_new = None
     else:
         num_harmonics, new_sr_factor = get_num_harmonics(freq[freq > 20].min(), freq.max(), sampling_rate, max_freq_hz)
         #--- make sure we stay below new nyquist
         assert freq.max() * num_harmonics < 0.5 * sampling_rate * new_sr_factor, f'Nyquist says you cannot synthesize {num_harmonics} harmonics at {new_sr_factor} X (current sampling rate)'
         additive_synth_k = num_harmonics
-        sampling_rate_new = sampling_rate * new_sr_factor
+        sampling_rate *= new_sr_factor
         should_downsample = True
     
-    dt = 1 / sampling_rate
-    
     #--- interpolate (upsample) to sampling-rate grid, if needed
-    if sampling_rate_new is not None:
-        tmax = len(freq) * dt
-        t_old = np.arange(0, len(freq)) * dt #np.arange(0, tmax, dt)
-        fintrp = interp1d(t_old, freq)
-        dt = 1 / sampling_rate_new
-        t_new = np.arange(0, tmax, dt)
-        t_new = t_new[(t_new <= t_old.max()) & (t_new >= t_old.min())] # avoid interpolation out of bounds
-        freq = fintrp(t_new)  
-
+    tmin, tmax = freq_ts[0], freq_ts[-1]
+    fintrp = interp1d(freq_ts, freq, kind = 'nearest', assume_sorted = True)
+    dt = 1 / sampling_rate
+    t_new = np.arange(tmin, tmax, dt)
+    #t_new = t_new[(t_new <= freq_ts[-1]) & (t_new >= freq_ts[0])] # avoid interpolation out of bounds
+    freq = fintrp(t_new)  
+    
+    x = freq_to_sawtooth(freq, additive_synth_k, sampling_rate)
     #--- phase is the integral of instantanous freq
-    phi = np.cumsum(2 * np.pi * freq * dt)
+    #phi = np.cumsum(2 * np.pi * freq * dt)
     # to wrap: phi = (phi + np.pi) % (2 * np.pi) - np.pi 
-        
-    x = np.sin(phi) #(np.sin(phi) + .5*np.sin(2*phi) + .333*np.sin(3*phi) + .25*np.sin(4*phi))
-    for k in range(2, additive_synth_k + 1):
-        x += (-1)**(k-1) * np.sin(k * phi) / k
+    #    
+    #x = np.sin(phi) #(np.sin(phi) + .5*np.sin(2*phi) + .333*np.sin(3*phi) + .25*np.sin(4*phi))
+    #for k in range(2, additive_synth_k + 1):
+    #    x += (-1)**(k-1) * np.sin(k * phi) / k
     
     #--- if we upsampled, go back to original rate
     if should_downsample:
         #--- for x, give a "anti-alias" filter to "decimate", but actually use it to filter above the desired max_freq_hz
-        zpk = butter(12, max_freq_hz, output = 'zpk', fs = sampling_rate_new)
+        zpk = butter(12, max_freq_hz, output = 'zpk', fs = sampling_rate)
         aa_filt = dlti(*zpk) 
         x = decimate(x, new_sr_factor, ftype = aa_filt)
         freq = decimate(freq, new_sr_factor) #--- fnew is just used to zero the envelope, so decimate so size fits
-        #sr = int(sr / new_sr_factor)
+        sr = int(sampling_rate / new_sr_factor)
     
-    x *= env
-    
-    return x
+    return x, freq
 
-def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = None, max_freq_hz = None, spline_smoothing = None, verbose = False):
+def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = None, max_freq_hz = None, smoothing = None, verbose = False):
     ''' This method takes raw wav (an audio segment, aka "seg") and an associated midi phrase midi_p as input, and returns a synthesized wave with same amplitude and frequency envelopes
         The midi phrase is used to enclose notes inside a [note_on, note_off] interval
         (in the original notebook this methid is called "seg_to_synth")
@@ -103,7 +118,7 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
             - max_freq_hz:   synthesize up to this frequency. This is done by upsampling, synthesizing the required amound of harmonics,
                              and downsampling back to sr
         Other arguments:                    
-            - smooth_env:    flag to apply smooting using 2nd order splines
+            - smoothing:    If not None, should be a dict of smoothing config
     '''
     
     assert(num_harmonics is None or max_freq_hz is None)
@@ -194,42 +209,44 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
     #--- lastly, fill with zeros the samples that are still missing
     f1[np.isnan(f1)] = 0.
     
+    x, fnew = additive_synth_sawtooth(f1, times1, sr, num_harmonics, max_freq_hz)
+    
+    #--- that code was moved to additive_synth_sawtooth method:
     #--- set number of harmonics of sawtooth wave
-    if num_harmonics is not None:
-        additive_synth_k = num_harmonics # 10
-        should_downsample = False
-    else:
-        num_harmonics, new_sr_factor = get_num_harmonics(f1[f1 > 20].min(), f1.max(), sr, max_freq_hz)
-        #--- make sure we stay below new nyquist
-        assert f1.max() * num_harmonics < 0.5 * sr * new_sr_factor, f'Nyquist says you cannot synthesize {num_harmonics} harmonics at {new_sr_factor} X (current sampling rate)'
-        additive_synth_k = num_harmonics
-        sr *= new_sr_factor
-        should_downsample = True
-    
-    #--- now interpolate to sampling-rate grid
-    dt = 1 / sr
-    fintrp = interp1d(times1, f1)
-    tnew = np.arange(tmin, tmax, dt)
-    fnew = fintrp(tnew)
-    
-    #--- phase is the integral of instantanous freq
-    phi = np.cumsum(2 * np.pi * fnew * dt)
-    # to wrap: phi = (phi + np.pi) % (2 * np.pi) - np.pi 
+    if False:
+        if num_harmonics is not None:
+            additive_synth_k = num_harmonics # 10
+            should_downsample = False
+        else:
+            num_harmonics, new_sr_factor = get_num_harmonics(f1[f1 > 20].min(), f1.max(), sr, max_freq_hz)
+            #--- make sure we stay below new nyquist
+            assert f1.max() * num_harmonics < 0.5 * sr * new_sr_factor, f'Nyquist says you cannot synthesize {num_harmonics} harmonics at {new_sr_factor} X (current sampling rate)'
+            additive_synth_k = num_harmonics
+            sr *= new_sr_factor
+            should_downsample = True
         
-    x = np.sin(phi) #(np.sin(phi) + .5*np.sin(2*phi) + .333*np.sin(3*phi) + .25*np.sin(4*phi))
-    for k in range(2, additive_synth_k + 1):
-        x += (-1)**(k-1) * np.sin(k*phi) / k
-    
-    #--- if we upsampled, go back to original rate
-    if should_downsample:
-        #--- for x, give a "anti-alias" filter to "decimate", but actually use it to filter above the desired max_freq_hz
-        zpk = butter(12, max_freq_hz, output = 'zpk', fs = sr)
-        aa_filt = dlti(*zpk) 
-        x = decimate(x, new_sr_factor, ftype = aa_filt)
-        fnew = decimate(fnew, new_sr_factor) #--- fnew is just used to zero the envelope, so decimate so size fits
-        sr = int(sr / new_sr_factor)
-    
-    env = librosa.feature.rms(y = seg, frame_length = 512, hop_length = 1, center = True)
+        #--- now interpolate to sampling-rate grid
+        dt = 1 / sr
+        fintrp = interp1d(times1, f1, kind = 'nearest', assume_sorted = True)
+        tnew = np.arange(tmin, tmax, dt)
+        fnew = fintrp(tnew)
+        
+        x = freq_to_sawtooth(fnew, additive_synth_k, sr)
+        
+        #--- if we upsampled, go back to original rate
+        if should_downsample:
+            #--- for x, give a "anti-alias" filter to "decimate", but actually use it to filter above the desired max_freq_hz
+            zpk = butter(12, max_freq_hz, output = 'zpk', fs = sr)
+            aa_filt = dlti(*zpk) 
+            x = decimate(x, new_sr_factor, ftype = aa_filt)
+            fnew = decimate(fnew, new_sr_factor) #--- fnew is just used to zero the envelope, so decimate so size fits
+            sr = int(sr / new_sr_factor)
+   
+        assert np.allclose(x,x_), 'x != x_, debug'
+
+    env_hop = 1 # we need the env at audio rate
+    env_frame = 512 # this equals ac_win of the pitch detection.. should we set it to ac_win?
+    env = librosa.feature.rms(y = seg, frame_length = env_frame, hop_length = env_hop, center = True)
     env = 1.3 * np.sqrt(2)*env[0, :len(x)]
     env[fnew == 0] = 0. # don't apply envelope where there was no pitch found
 
@@ -245,17 +262,31 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
         decay_factor = np.linspace(1, 0, decay_len)
         env[ind_start: env_seg[0]] *= decay_factor  
     
-    if spline_smoothing is not None:
-        ts = t0 + np.arange(0, len(env)) / sr
-        spl = UnivariateSpline(ts, env, s = spline_smoothing, k = 2)
-        env = spl(ts)
-        env[env < 0.] = 0.
+    if smoothing is not None:
+        if smoothing['method'] == 'spline':
+            s_param = smoothing['smoothing']
+            k_param = smoothing['k']
+            ts = t0 + np.arange(0, len(env)) / sr
+            spl = UnivariateSpline(ts, env, s = s_param, k = k_param)
+            env = spl(ts)
+            env[env < 0.] = 0.
+        elif smoothing['method'] == 'lowpass':
+            env_sr = sr / env_hop 
+            env = smooth_env_lowpass(env, env_sr, smoothing)
+        else:
+            raise ValueError('smoothing cfg shold be a dict with a "method" key')
         
+    
     x *= env
     gain = np.sqrt((x**2).mean()) / np.sqrt((seg**2).mean()) 
     x /= gain
     env /= gain
 
-    raw_pitch = dict(freq = f1, vflag = vflag1, vprob = vprob1)
+    #--- return envelopes sampled at low rate
+    env_out = env[::hop] #--- this is what we would get if we used hop_length > 1 in librosa.feature.rms since I set "center=True"
+    n = min(len(f1), len(env_out))
+    env_out = env_out[:n]
+    f1 = f1[:n]
+    pitch_out = dict(freq = f1, vflag = vflag1, vprob = vprob1)
     
-    return x, env, fnew, raw_pitch
+    return x, env_out, pitch_out
