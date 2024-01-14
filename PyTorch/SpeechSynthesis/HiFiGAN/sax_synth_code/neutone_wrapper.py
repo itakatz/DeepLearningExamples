@@ -90,7 +90,7 @@ class HiFiGANSaxSynthWrapper(WaveformToWaveformBase):
 
 def test_hifigan_sax_synth(use_cuda_if_available = False):
     import numpy as np
-    fnm = '../example_models/hifigan_gen_checkpoint_3000.pt'
+    fnm = 'example_models/hifigan_gen_checkpoint_3000.pt'
     print('loading hifigan from checkpoint')
     gen, denoiser, cfg = load_generator_model(fnm, device = 'cpu')
     print('done loading hifigan')
@@ -107,11 +107,12 @@ def test_hifigan_sax_synth(use_cuda_if_available = False):
         model = model.cuda()
 
     y = model(x)
+    #--- compare the rms of the signal to expected value
     y_rms = y.square().mean().sqrt().item()
     y_rms_expected = 0.0013820248423144221
     n_digits = 6 # output is different from cpu to gpu
     if np.round(y_rms, n_digits) == np.round(y_rms_expected, n_digits):
-        print('Output as expected (rounded to {n_digits} digits) :-)')
+        print(f'Output as expected (rounded to {n_digits} digits) :-)')
     else:
         print(f'Output not as expected: y_rms = {y_rms}, expected {y_rms_expected}')
 
@@ -120,9 +121,9 @@ if __name__ == '__main__':
     from neutone_sdk.utils import save_neutone_model
     
     try:
-        print('calling the test method')
+        print('====== calling the test method ======')
         test_hifigan_sax_synth(use_cuda_if_available = False)
-        print('done testing')
+        print('====== done testing ======')
     except Exception as e:
         print(f'Testing failed with error: {e}')
         raise e
