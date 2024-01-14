@@ -25,6 +25,7 @@ class gCFG():
     batch_size = 128
     sample_sec = 1 #2  #0.5
     history_len = 16 #32 # 6 # 32 frames with hop of 256 at 44100 Hz, is approx 18.5 msec of recent history
+    env_db = True
 
 class PositionalEncoding(nn.Module):
     ''' copied from here: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#define-the-model
@@ -159,6 +160,7 @@ class EnvelopesDataset(Dataset):
             note_id = np.zeros_like(env, dtype = np.int32)
             note_en = np.zeros_like(env, dtype = np.float32)
             is_note = np.zeros_like(env, dtype = np.float32)
+            # TODO ! read params such as sample rate and frame hop, from config!
             frames_ind = np.round((midi_p['ts_sec'].to_numpy(dtype = float) - t0) * 44100 / 256).astype(int)
             #--- treat out-of-range frame index - TODO check why it happens, in method "midi.midi_phrase_from_dataframe"
             frames_ind = np.maximum(0, frames_ind)
@@ -180,6 +182,12 @@ class EnvelopesDataset(Dataset):
             self.cache_flist.append(cache_fnm)
 
         #--- create a view which includes history TODO we can have different history_len for each feature
+        if gCFG.env_db == True:
+            noise_floor_db = -50. # empirically, that's the 0.05 quantile of smallest env value which is not 0, sampled over ~200 phrases
+            env = 10 * np.log10(env + 10 ** (noise_floor_db / 10))
+            #--- scale to [0, 1] (using lazy params, better to fit a min-max scaler over all features)
+            env = env / (-noise_floor_db) + 1.
+
         env = sliding_window_view(env, self.history_len_samples)
         note_id = sliding_window_view(note_id, self.history_len_samples)
         note_en = sliding_window_view(note_en, self.history_len_samples)
@@ -249,7 +257,7 @@ if __name__ == '__main__':
 
     #--- mimic input args
     #input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
-    input_args = f'env_timegan.py --num_layer 3 --hidden_dim 64 --latent_dim 64 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_18_12_test --model EnvelopeTimeGAN --name test2_gen_mom_dim1'
+    input_args = f'env_timegan.py --num_layer 3 --num_layer_gen 3 --num_layer_discrim 3 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2024_01_01 --model EnvelopeTimeGAN --name lyr_3_ldim_16_w_l1_50'
     sys.argv = input_args.split()
     opt = Options().parse()
     
@@ -260,7 +268,7 @@ if __name__ == '__main__':
     
     #--- different no. of epoch for embed/supervised and for joint training
     opt.num_epochs_es = 50 #250 #opt.iteration
-    opt.num_epochs = 250 # opt.iteration
+    opt.num_epochs = 1000 # opt.iteration
     #opt.batch_size = gCFG.batch_size
 
     x, xout, t, note_id, note_en, is_note = train_loader.dataset[0] #--- get a sample for the dims
@@ -273,11 +281,18 @@ if __name__ == '__main__':
     #opt.outf = './output_TMP'
     opt.average_seq_before_loss = True
     opt.generator_loss_moments_axis = 1 # use "0" to calculate along batch (original impl, after bug fix), or "1" to calculate along the sequence (makes more sense)
+    #--- load autoencode and supervisor (aka AES) from disk to start from joint training
+    AES_checkpoint = './results/2023_30_12_ldim2/test1_gen_latent_dim2/train/weights'
+    AES_epoch = 249
+    joint_train_only = True
+
     #--- to load model:
     #opt.resume = 'results/2023_17_12_test/test4_mean_bce/train/weights'
     #opt.resume_epoch = 0
 
     model = EnvelopeTimeGAN(opt, train_loader, val_loader)
+    if joint_train_only:
+        model.load_AE_and_S(AES_checkpoint, AES_epoch)
     model.max_seq_len = opt.seq_len
     print(f'Options:\n{opt}')
     count_parameters = lambda model: sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -289,4 +304,4 @@ if __name__ == '__main__':
         print(f'{type(net).__name__}: number of params: {num_params}')
     print(f'total params: {tot}')
             
-    model.train()
+    model.train(joint_train_only = joint_train_only)

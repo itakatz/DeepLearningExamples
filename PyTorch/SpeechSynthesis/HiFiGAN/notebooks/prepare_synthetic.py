@@ -12,8 +12,8 @@ from ssynth.utils.synthesis import wav_midi_to_synth
 if __name__ == '__main__':
     #--- input params TODO use argparse
     #--- exactly one of these should be None:
-    #num_harmonics, max_freq_hz = 1, None # OR: None, 16000
-    num_harmonics, max_freq_hz = None, 16000 # OR: None, 16000
+    num_harmonics, max_freq_hz = np.inf, None # OR: None, 16000
+    #num_harmonics, max_freq_hz = None, 16000 # OR: None, 16000
     assert num_harmonics is None or max_freq_hz is None
     smoothing_method = 'lowpass' # options are ['lowpass', 'spline', 'none']. NOTE  old method 'spline' is bad, amoothing is done using MSE criterion which depends on signal length
     smoothing_cfgs = dict(spline  = dict(method = 'spline',  smoothing = 0.5, order = 2), 
