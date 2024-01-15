@@ -117,6 +117,8 @@ def test_hifigan_sax_synth(use_cuda_if_available = False):
         print(f'Output not as expected: y_rms = {y_rms}, expected {y_rms_expected}')
 
 if __name__ == '__main__':
+    #--- hifigan generator can be downloaded from here: https://drive.google.com/file/d/143Ggl5gkSveMhq2EtJ4tvB4UZyOSsram/view?usp=sharing
+    #--- it should be placed in a subfolder called "example_models"
     import pathlib
     from neutone_sdk.utils import save_neutone_model
     
