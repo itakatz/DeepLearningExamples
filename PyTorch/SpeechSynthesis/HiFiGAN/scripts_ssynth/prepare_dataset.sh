@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# call example (inside docker)::
+#>> USE_SYNTH_WAVS=true SYNTH_SUFFIX=synth_16k_lp20hz bash scripts_ssynth/prepare_dataset.sh
+
 set -e
 
 #: ${DATASET_PATH:=data/LJSpeech-1.1}

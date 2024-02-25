@@ -35,7 +35,7 @@ from common import gpu_affinity
 from common.tb_dllogger import (init_inference_metadata, stdout_metric_format,
                                 unique_log_fpath)
 from common.text import cmudict
-from common.text.text_processing import TextProcessing
+from common.text.text_processing import get_text_processing
 from common.utils import l2_promote
 from fastpitch.pitch_transform import pitch_transform_custom
 from hifigan.data_function import MAX_WAV_VALUE, mel_spectrogram
@@ -165,13 +165,13 @@ def prepare_input_sequence(fields, device, symbol_set, text_cleaners,
                            batch_size=128, dataset=None, load_mels=False,
                            load_pitch=False, p_arpabet=0.0, treat_text_as_midi = False):
     if not treat_text_as_midi:
-        tp = TextProcessing(symbol_set, text_cleaners, p_arpabet=p_arpabet)
+        tp = get_text_processing(symbol_set, text_cleaners, p_arpabet)
         fields['text'] = [torch.LongTensor(tp.encode_text(text)) 
                             for text in fields['text']]
     else:
         fields['text'] = [torch.LongTensor([int(t) for t in txt.split()]) 
                             for txt in fields['text']] 
-        
+
     order = np.argsort([-t.size(0) for t in fields['text']])
 
     fields['text'] = [fields['text'][i] for i in order]

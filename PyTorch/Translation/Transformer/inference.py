@@ -151,6 +151,7 @@ def main(args):
 
     use_cuda = torch.cuda.is_available() and not args.cpu
 
+    torch.cuda.synchronize()
     processing_start = time.time()
 
     # Load ensemble
@@ -185,6 +186,7 @@ def main(args):
         translator.cuda()
 
     # Load BPE codes file
+    bpe = None
     if args.bpe_codes:
         codes = open(args.bpe_codes, 'r')
         bpe = BPE(codes)
@@ -229,7 +231,9 @@ def main(args):
             tokens = tokens.cuda()
             lengths = lengths.cuda()
 
+        torch.cuda.synchronize()
         translation_start = time.time()
+
         gen_timer.start()
         translations = translator.generate(
             tokens,
@@ -237,6 +241,8 @@ def main(args):
             maxlen=int(args.max_len_a * tokens.size(1) + args.max_len_b),
         )
         gen_timer.stop(sum(len(h[0]['tokens']) for h in translations))
+
+        torch.cuda.synchronize()
         dllogger.log(step='infer', data={'latency': time.time() - translation_start})
 
         return [make_result(batch.srcs[i], t) for i, t in enumerate(translations)]
@@ -262,6 +268,7 @@ def main(args):
     if args.file:
         data_descriptor.close()
 
+    torch.cuda.synchronize()
     log_dict = {
                 'throughput': 1./gen_timer.avg,
                 'latency_avg': sum(gen_timer.intervals)/len(gen_timer.intervals),

@@ -17,6 +17,8 @@ achieve state-of-the-art accuracy. The content of this repository is tested and 
     * [Enabling TF32](#enabling-tf32)
   * [Automatic SParsity](#automatic-sparsity)
     * [Enable Automatic SParsity](#enable-automatic-sparsity)
+  * [Quantization aware training](#quantization-aware-training)
+    * [Enable quantization aware training](#enable-quantization-aware-training)
 * [Setup](#setup)
   * [Requirements](#requirements)
 * [Quick Start Guide](#quick-start-guide)
@@ -26,6 +28,7 @@ achieve state-of-the-art accuracy. The content of this repository is tested and 
   * [Dataset guidelines](#dataset-guidelines)
   * [Training process](#training-process)
   * [Automatic SParsity training process](#automatic-sparsity-training-process)
+  * [Quantization aware training process](#quantization-aware-training-process)
   * [Inference process](#inference-process)
 * [Performance](#performance)
   * [Benchmarking](#benchmarking)
@@ -128,6 +131,7 @@ This model supports the following features:
 |[DALI](https://docs.nvidia.com/deeplearning/sdk/dali-release-notes/index.html)   | Yes |
 |[Paddle AMP](https://www.paddlepaddle.org.cn/documentation/docs/en/guides/performance_improving/amp_en.html) | Yes |
 |[Paddle ASP](https://www.paddlepaddle.org.cn/documentation/docs/en/api/paddle/static/sparsity/decorate_en.html) | Yes |
+|[PaddleSlim QAT](https://paddleslim.readthedocs.io/en/latest/quick_start/quant_aware_tutorial_en.html) | Yes |
 |[Paddle-TRT](https://github.com/PaddlePaddle/Paddle-Inference-Demo/blob/master/docs/optimize/paddle_trt_en.rst) | Yes |
 
 #### Features
@@ -139,7 +143,9 @@ with the DALI library. For more information about DALI, refer to the [DALI produ
 
 - Paddle ASP is a PaddlePaddle built-in module that provides functions to enable automatic sparsity workflow with only a few code line insertions. The full APIs can be found in [Paddle.static.sparsity](https://www.paddlepaddle.org.cn/documentation/docs/en/api/paddle/static/sparsity/calculate_density_en.html). Paddle ASP support, currently, static graph mode only (Dynamic graph support is under development). Refer to the [Enable Automatic SParsity](#enable-automatic-sparsity) section for more details.
 
-- Paddle-TRT is a PaddlePaddle inference integration with [TensorRT](https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html). It selects subgraph to be accelerated by TensorRT, while leaving the rest of the operations to be executed natively by PaddlePaddle. Refer to the [Inference with TensorRT](#inference-with-tensorrt) section for more details.
+- PaddleSlim is a set of tools based on PaddlePaddle for model acceleration, quantization, pruning, and knowledge distillation. For model quantization, PaddleSlim offers simple and user-friendly APIs for quantization aware training. The full APIs can be found in [Quantization aware training](https://paddleslim.readthedocs.io/en/latest/api_en/index_en.html). PaddleSlim currently supports updating gradients and scales simultaneously during quantization aware training (Training with fixed scales is still under development). Refer to the [Enable quantization aware training](#enable-quantization-aware-training) section for more details.
+
+- Paddle-TRT is a PaddlePaddle inference integration with [TensorRT](https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html). It selects subgraphs to be accelerated by TensorRT, while leaving the rest of the operations to be executed natively by PaddlePaddle. Refer to the [Inference with TensorRT](#inference-with-tensorrt) section for more details.
 
 ### DALI
 
@@ -147,7 +153,7 @@ We use [NVIDIA DALI](https://github.com/NVIDIA/DALI),
 which speeds up data loading when the CPU becomes a bottleneck.
 DALI can use CPU or GPU and outperforms the PaddlePaddle native data loader.
 
-For data loader, we only support DALI as data loader for now.
+For data loaders, we only support DALI as data loader for now.
 
 
 ### Mixed precision training
@@ -225,6 +231,30 @@ Moreover, ASP is also compatible with mixed precision training.
 Note that currently ASP only supports static graphs (Dynamic graph support is under development).
 
 
+### Quantization Aware Training
+Quantization aware training (QAT) is a technique to train models with the awareness of the quantization process. Quantization refers to reducing the precision of numerical values in a model, typically from floating-point to lower-bit fixed-point representations. In QAT, during the training process, the model is trained to accommodate the effects of quantization, enabling it to maintain performance even when deployed with reduced precision.
+Through PaddleSlim QAT, we can quantize models by the following steps:
+- quantize and dequantize the weights and inputs before feeding them into weighted-layers (ex. Convolution and Fullyconnected)
+- record the scale of each tensor for use in low precision inference
+
+For more information, refer to
+- [INTEGER QUANTIZATION FOR DEEP LEARNING INFERENCE: PRINCIPLES AND EMPIRICAL EVALUATION](https://arxiv.org/pdf/2004.09602.pdf)
+
+#### Enable Quantization Aware Training
+PaddlePaddle integrates some QAT modules from PaddleSlim, a toolkit for deep learning model compression, to enable QAT training. 
+The APIs can quantize a train program and also convert it into an INT8 inference model.
+
+```python
+quant_program = quanter.quant_aware(program)
+...
+quant_infer_program = quanter.convert(quant_program)
+```
+
+The detailed information on QAT API can be found in [quantization_aware_tutorial](https://paddleslim.readthedocs.io/en/latest/quick_start/quant_aware_tutorial_en.html).
+
+Moreover, QAT is also compatible with mixed precision training.
+
+
 ## Setup
 
 The following section lists the requirements you need to meet to start training the ResNet50 model.
@@ -233,7 +263,7 @@ The following section lists the requirements you need to meet to start training 
 This repository contains a Dockerfile that extends the CUDA NGC container and encapsulates some dependencies. Aside from these dependencies, ensure you have the following components:
 
 * [NVIDIA Docker](https://github.com/NVIDIA/nvidia-docker)
-* [PaddlePaddle 22.05-py3 NGC container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/paddlepaddle) or newer
+* [PaddlePaddle 23.12-py3 NGC container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/paddlepaddle) or newer
 * Supported GPUs:
     * [NVIDIA Ampere architecture](https://www.nvidia.com/en-us/data-center/nvidia-ampere-gpu-architecture/)
 
@@ -289,13 +319,13 @@ docker build . -t nvidia_resnet50
 
 ### 4. Start an interactive session in the NGC container to run training/inference.
 ```bash
-nvidia-docker run --rm -it -v <path to imagenet>:/imagenet --ipc=host nvidia_resnet50
+nvidia-docker run --rm -it -v <path to imagenet>:/imagenet --ipc=host --e FLAGS_apply_pass_to_program=1  nvidia_resnet50
 ```
 
 ### 5. Start training
 
 To run training for a standard configuration (DGXA100, AMP/TF32),
-use one of scripts in `scripts/training` to launch training. (Please ensure ImageNet is mounted in the `/imagenet` directory.)
+use one of the scripts in `scripts/training` to launch training. (Please ensure ImageNet is mounted in the `/imagenet` directory.)
 
 Example:
 ```bash
@@ -303,7 +333,7 @@ Example:
 bash scripts/training/train_resnet50_TF32_90E_DGXA100.sh
 
 # For AMP and 8 GPUs training in 90 epochs
-bash scripts/training/train_resnet50_TF32_90E_DGXA100.sh
+bash scripts/training/train_resnet50_AMP_90E_DGXA100.sh
 ```
 
 Or you can manually launch training by `paddle.distributed.launch`. `paddle.distributed.launch` is a built-in module in PaddlePaddle that spawns up multiple distributed training processes on each of the training nodes.
@@ -390,7 +420,8 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py
 
 ### Command-line options:
 To find the full list of available options and their descriptions, use the `-h` or `--help` command-line option, for example:
-`python [train.py|export_model.py|inference.py] -h`
+
+`python train.py -h`
 
 ```bash
 PaddlePaddle RN50v1.5 training script
@@ -398,9 +429,11 @@ PaddlePaddle RN50v1.5 training script
 optional arguments:
   -h, --help            show this help message and exit
 
-Global:
-  --output-dir OUTPUT_DIR
-                        A path to store trained models. (default: ./output/)
+General:
+  --checkpoint-dir CHECKPOINT_DIR
+                        A path to store trained models. (default: ./checkpoint)
+  --inference-dir INFERENCE_DIR
+                        A path to store inference model once the training is finished. (default: ./inference/)
   --run-scope {train_eval,train_only,eval_only}
                         Running scope. It should be one of {train_eval, train_only, eval_only}. (default: train_eval)
   --epochs EPOCHS       The number of epochs for training. (default: 90)
@@ -410,11 +443,9 @@ Global:
                         The iteration interval to test trained models on a given validation dataset. Ignored when --run-scope is
                         train_only. (default: 1)
   --print-interval PRINT_INTERVAL
-                        The iteration interval to show training/evaluation message. (default: 10)
+                        The iteration interval to show a training/evaluation message. (default: 10)
   --report-file REPORT_FILE
-                        A file in which to store JSON experiment report. (default: ./report.json)
-  --data-layout {NCHW,NHWC}
-                        Data format. It should be one of {NCHW, NHWC}. (default: NCHW)
+                        A file in which to store JSON experiment reports. (default: ./train.json)
   --benchmark           To enable benchmark mode. (default: False)
   --benchmark-steps BENCHMARK_STEPS
                         Steps for benchmark run, only be applied when --benchmark is set. (default: 100)
@@ -431,7 +462,7 @@ Global:
   --last-epoch-of-checkpoint LAST_EPOCH_OF_CHECKPOINT
                         The epoch id of the checkpoint given by --from-checkpoint. It should be None, auto or integer >= 0. If it is set
                         as None, then training will start from 0-th epoch. If it is set as auto, then it will search largest integer-
-                        convertable folder --from-checkpoint, which contains required checkpoint. Default is None. (default: None)
+                        convertible folder --from-checkpoint, which contains the required checkpoint. Default is None. (default: None)
   --show-config SHOW_CONFIG
                         To show arguments. (default: True)
   --enable-cpu-affinity ENABLE_CPU_AFFINITY
@@ -448,7 +479,7 @@ Dataset:
   --dali-random-seed DALI_RANDOM_SEED
                         The random seed for DALI data loader. (default: 42)
   --dali-num-threads DALI_NUM_THREADS
-                        The number of threads applied to DALI data loader. (default: 4)
+                        The number of threads applied to the DALI data loader. (default: 4)
   --dali-output-fp16    Output FP16 data from DALI data loader. (default: False)
 
 Data Augmentation:
@@ -472,6 +503,8 @@ Model:
                         The model architecture name. It should be one of {ResNet50}. (default: ResNet50)
   --num-of-class NUM_OF_CLASS
                         The number classes of images. (default: 1000)
+  --data-layout {NCHW,NHWC}
+                        Data format. It should be one of {NCHW, NHWC}. (default: NCHW)
   --bn-weight-decay     Apply weight decay to BatchNorm shift and scale. (default: False)
 
 Training:
@@ -479,16 +512,16 @@ Training:
                         The ratio of label smoothing. (default: 0.1)
   --optimizer OPTIMIZER
                         The name of optimizer. It should be one of {Momentum}. (default: Momentum)
-  --momentum MOMENTUM   The momentum value of optimizer. (default: 0.875)
+  --momentum MOMENTUM   The momentum value of an optimizer. (default: 0.875)
   --weight-decay WEIGHT_DECAY
                         The coefficient of weight decay. (default: 3.0517578125e-05)
   --lr-scheduler LR_SCHEDULER
-                        The name of learning rate scheduler. It should be one of {Cosine}. (default: Cosine)
+                        The name of the learning rate scheduler. It should be one of {Cosine}. (default: Cosine)
   --lr LR               The initial learning rate. (default: 0.256)
   --warmup-epochs WARMUP_EPOCHS
                         The number of epochs for learning rate warmup. (default: 5)
   --warmup-start-lr WARMUP_START_LR
-                        The initial learning rate for warmup. (default: 0.0)
+                        The initial learning rate for warm up. (default: 0.0)
 
 Advanced Training:
   --amp                 Enable automatic mixed precision training (AMP). (default: False)
@@ -497,35 +530,49 @@ Advanced Training:
   --use-dynamic-loss-scaling
                         Enable dynamic loss scaling in AMP training, only be applied when --amp is set. (default: False)
   --use-pure-fp16       Enable pure FP16 training, only be applied when --amp is set. (default: False)
+  --fuse-resunit        Enable CUDNNv8 ResUnit fusion, only be applied when --amp is set. (default: False)
   --asp                 Enable automatic sparse training (ASP). (default: False)
   --prune-model         Prune model to 2:4 sparse pattern, only be applied when --asp is set. (default: False)
   --mask-algo {mask_1d,mask_2d_greedy,mask_2d_best}
                         The algorithm to generate sparse masks. It should be one of {mask_1d, mask_2d_greedy, mask_2d_best}. This only
                         be applied when --asp and --prune-model is set. (default: mask_1d)
-
-Paddle-TRT:
-  --trt-inference-dir TRT_INFERENCE_DIR
-                        A path to store/load inference models. export_model.py would export models to this folder, then inference.py
-                        would load from here. (default: ./inference)
-  --trt-precision {FP32,FP16,INT8}
-                        The precision of TensorRT. It should be one of {FP32, FP16, INT8}. (default: FP32)
-  --trt-workspace-size TRT_WORKSPACE_SIZE
-                        The memory workspace of TensorRT in MB. (default: 1073741824)
-  --trt-min-subgraph-size TRT_MIN_SUBGRAPH_SIZE
-                        The minimal subgraph size to enable PaddleTRT. (default: 3)
-  --trt-use-static TRT_USE_STATIC
-                        Fix TensorRT engine at first running. (default: False)
-  --trt-use-calib-mode TRT_USE_CALIB_MODE
-                        Use the PTQ calibration of PaddleTRT int8. (default: False)
-  --trt-export-log-path TRT_EXPORT_LOG_PATH
-                        A file in which to store JSON model exporting report. (default: ./export.json)
-  --trt-log-path TRT_LOG_PATH
-                        A file in which to store JSON inference report. (default: ./inference.json)
-  --trt-use-synthat TRT_USE_SYNTHAT
-                        Apply synthetic data for benchmark. (default: False)
+  --qat                 Enable quantization aware training (QAT). (default: False)
 ```
 
-Noted that arguments in Paddle-TRT are only available to `export_model.py` or `inference.py`.
+`python inference.py -h`
+```sh
+Paddle-TRT:
+  --device DEVICE_ID
+                        The GPU device id for Paddle-TRT inference. (default: 0)
+  --inference-dir INFERENCE_DIR
+                        A path to load inference models. (default: ./inference)
+  --batch-size BATCH_SIZE
+                        The batch size for Paddle-TRT. (default: 256)
+  --image-shape IMAGE_SHAPE
+                        The image shape. Its shape should be [channel, height, width]. (default: [4, 224, 224])
+  --data-layout {NCHW,NHWC}
+                        Data format. It should be one of {NCHW, NHWC}. (default: NCHW)
+  --precision {FP32,FP16,INT8}
+                        The precision of TensorRT. It should be one of {FP32, FP16, INT8}. (default: FP32)
+  --workspace-size WORKSPACE_SIZE
+                        The memory workspace of TensorRT in MB. (default: 1073741824)
+  --min-subgraph-size MIN_SUBGRAPH_SIZE
+                        The minimal subgraph size to enable PaddleTRT. (default: 3)
+  --use-static USE_STATIC
+                        Fix TensorRT engine at first running. (default: False)
+  --use-calib-mode USE_CALIB_MODE
+                        Use the PTQ calibration of PaddleTRT int8. (default: False)
+  --report-file REPORT_FILE
+                        A file in which to store JSON experiment report. (default: ./inference.json)
+  --use-synthetic USE_SYNTHAT
+                        Apply synthetic data for benchmark. (default: False)
+  --benchmark-steps BENCHMARK_STEPS
+                        Steps for benchmark run, only be applied when --benchmark is set. (default: 100)
+  --benchmark-warmup-steps BENCHMARK_WARMUP_STEPS
+                        Warmup steps for benchmark run, only be applied when --benchmark is set. (default: 100)
+  --show-config SHOW_CONFIG
+                        To show arguments. (default: True)
+```
 
 ### Dataset guidelines
 
@@ -537,15 +584,17 @@ To use your own dataset, divide it in directories as in the following scheme:
 If the number of classes in your dataset is not 1000, you need to specify it to `--num-of-class`.
 
 ### Training process
-The model will be stored in the directory specified with `--output-dir` and `--model-arch-name`, including three files:
+The checkpoint will be stored in the directory specified with `--checkpoint-dir` and `--model-arch-name`, including three files:
 - `.pdparams`: The parameters contain all the trainable tensors and will save to a file with the suffix “.pdparams”. 
-- `.pdopts`: The optimizer information contains all the Tensors used by the optimizer. For Adam optimizer, it contains beta1, beta2, momentum, and so on. All the information will be saved to a file with suffix “.pdopt”. (If the optimizer has no Tensor need to save (like SGD), the file will not be generated).
+- `.pdopts`: The optimizer information contains all the Tensors used by the optimizer. For Adam optimizer, it contains beta1, beta2, momentum, and so on. All the information will be saved to a file with the suffix “.pdopt”. (If the optimizer has no Tensor need to save (like SGD), the file will not be generated).
 - `.pdmodel`: The network description is the description of the program. It’s only used for deployment. The description will save to a file with the suffix “.pdmodel”.
 
-The prefix of model files is specified by `--model-prefix`, which default value is `resnet_50_paddle`. Model of each epoch would be stored in directory `./output/ResNet50/epoch_id/` with three files by default, including `resnet_50_paddle.pdparams`, `resnet_50_paddle.pdopts`, `resnet_50_paddle.pdmodel`. Note that `epoch_id` is 0-based, which means `epoch_id` is from 0 to 89 for a total of 90 epochs. For example, the model of the 89th epoch would be stored in `./output/ResNet50/89/resnet_50_paddle` 
+The prefix of model files is specified by `--model-prefix`, whose default value is `resnet_50_paddle`. Model of each epoch would be stored in directory `./checkpoint/ResNet50/epoch_id/` with three files by default, including `resnet_50_paddle.pdparams`, `resnet_50_paddle.pdopts`, `resnet_50_paddle.pdmodel`. Note that `epoch_id` is 0-based, which means `epoch_id` is from 0 to 89 for a total of 90 epochs. For example, the model of the 89th epoch would be stored in `./output/ResNet50/89/resnet_50_paddle` 
+
+When the training phase is done, the inference model will be stored in the directory specified with `--inference-dir` and `--model-arch-name`, and it includes `.pdmodel` and `.pdparams` two files.
 
 Assume you want to train the ResNet50 for 90 epochs, but the training process aborts during the 50th epoch due to infrastructure faults. To resume training from the checkpoint, specify `--from-checkpoint` and `--last-epoch-of-checkpoint` with following these steps:  
-- Set `./output/ResNet50/49` to `--from-checkpoint`.
+- Set `./checkpoint/ResNet50/49` to `--from-checkpoint`.
 - Set `--last-epoch-of-checkpoint` to `49`.
 Then rerun the training to resume training from the 50th epoch to the 89th epoch.
 
@@ -559,11 +608,11 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
   --use-dynamic-loss-scaling \
   --data-layout NHWC \
   --model-prefix resnet_50_paddle \
-  --from-checkpoint ./output/ResNet50/49 \
+  --from-checkpoint ./checkpoint/ResNet50/49 \
   --last-epoch-of-checkpoint 49
 ```
 
-We also provide automatic searching for the checkpoint from last epoch. You can enable this by set `--last-epoch-of-checkpoint` as `auto`. Noted that if enable automatic searching, `--from-checkpoint` should be a folder contains chekcpoint files or `<epoch_id>/<ckpt_files>`. In previous example, it should be `./output/ResNet50`.
+We also provide automatic searching for the checkpoint from last epoch. You can enable this by setting `--last-epoch-of-checkpoint` as `auto`. Note that if you enable automatic searching, `--from-checkpoint` should be a folder containing checkpoint files or `<epoch_id>/<ckpt_files>`. In previous example, it should be `./checkpoint/ResNet50`.
 
 Example:
 ```bash
@@ -575,11 +624,11 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
   --use-dynamic-loss-scaling \
   --data-layout NHWC \
   --model-prefix resnet_50_paddle \
-  --from-checkpoint ./output/ResNet50 \
+  --from-checkpoint ./checkpoint/ResNet50 \
   --last-epoch-of-checkpoint auto
 ```
 
-To start training from pretrained weights, set `--from-pretrained-params` to `./output/ResNet50/<epoch_id>/<--model-prefix>`.
+To start training from pretrained weights, set `--from-pretrained-params` to `./checkpoint/ResNet50/<epoch_id>/<--model-prefix>`.
 
 Example:
 ```bash
@@ -591,7 +640,7 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
   --use-dynamic-loss-scaling \
   --data-layout NHWC \
   --model-prefix resnet_50_paddle \
-  --from-pretrained-params ./output/ResNet50/<epoch_id>
+  --from-pretrained-params ./checkpoint/ResNet50/<epoch_id>
 ```
 
 Make sure:
@@ -603,7 +652,7 @@ The difference between those two is that `--from-pretrained-params` contain only
 
 `--from-checkpoint` is suitable for dividing the training into parts, for example, in order to divide the training job into shorter stages, or restart training after infrastructure faults.
 
-`--from-pretrained-params` can be used as a base for finetuning the model to a different dataset or as a backbone to detection models.
+`--from-pretrained-params` can be used as a base for fine tuning the model to a different dataset or as a backbone to detection models.
 
 Metrics gathered through both training and evaluation:
  - `[train|val].loss` - loss
@@ -619,24 +668,24 @@ Metrics gathered through both training and evaluation:
 
 
 ### Automatic SParsity training process:
-To enable automatic sparsity training workflow, turn on `--amp` and `--prune-mode` when training launches. Refer to [Command-line options](#command-line-options)
+To enable automatic sparsity training workflow, turn on `--asp` and `--prune-mode` when training launches. Refer to [Command-line options](#command-line-options)
 
 Note that automatic sparsity (ASP) requires a pretrained model to initialize parameters.
 
 You can apply `scripts/training/train_resnet50_AMP_ASP_90E_DGXA100.sh` we provided to launch ASP + AMP training.
 ```bash
-# Default path to pretrained parameters is ./output/ResNet50/89/resnet_50_paddle
+# Default path to pretrained parameters is ./checkpoint/ResNet50/89/resnet_50_paddle
 bash scripts/training/train_resnet50_AMP_ASP_90E_DGXA100.sh <pretrained_parameters>
 ```
 
 Or following steps below to manually launch ASP + AMP training.
 
-First, set `--from-pretrained-params` to a pretrained model file. For example, if you have trained the ResNet50 for 90 epochs following [Training process](#training-process), the final pretrained weights would be stored in `./output/ResNet50/89/resnet_50_paddle.pdparams` by default, and set `--from-pretrained-params` to `./output/ResNet50/89`.
+First, set `--from-pretrained-params` to a pretrained model file. For example, if you have trained the ResNet50 for 90 epochs following [Training process](#training-process), the final pretrained weights would be stored in `./checkpoint/ResNet50/89/resnet_50_paddle.pdparams` by default, and set `--from-pretrained-params` to `./checkpoint/ResNet50/89`.
 
 Then run following command to run AMP + ASP:
 ```bash
 python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
-  --from-pretrained-params ./output/ResNet50/89 \
+  --from-pretrained-params ./checkpoint/ResNet50/89 \
   --model-prefix resnet_50_paddle \
   --epochs 90 \
   --amp \
@@ -648,14 +697,43 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
   --mask-algo mask_1d
 ```
 
+## Quantization Aware Training Process
+Quantization aware training requires a fine-tuned model. Quantize / dequantize OPs will be inserted into the model and then a smaller number of epochs of training will be taken to update the parameters in the model.
+
+To enable quantization aware training workflow, turn on `--qat` when training launches. Refer to [Command-line options](#command-line-options).
+
+You can apply the script `scripts/training/train_resnet50_AMP_QAT_10E_DGXA100.sh` we provided to launch AMP + QAT training.
+```bash
+# Default path to pretrained parameters is ./output/ResNet50/89/resnet_50_paddle
+bash scripts/training/train_resnet50_AMP_QAT_10E_DGXA100.sh <pretrained_parameters>
+```
+
+Or following steps below to manually launch AMP + QAT training.
+
+First, set `--from-pretrained-params` to a pretrained model file. For example, if you have trained the ResNet50 for 90 epochs following [Training process](#training-process), the final pretrained weights would be stored in `./output/ResNet50/89/resnet_50_paddle.pdparams` by default, and set `--from-pretrained-params` to `./output/ResNet50/89`.
+
+Then run following command to run AMP + QAT:
+```bash
+python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
+  --from-pretrained-params ./output/ResNet50/89 \
+  --model-prefix resnet_50_paddle \
+  --epochs 10 \
+  --amp \
+  --scale-loss 128.0 \
+  --use-dynamic-loss-scaling \
+  --data-layout NHWC \
+  --qat
+```
+
+
 ### Inference process
 
 #### Inference on your own datasets.
 To run inference on a single example with pretrained parameters,
 
 1. Set `--from-pretrained-params` to your pretrained parameters.
-2. Set `--image-root` to the root folder of your own dataset. 
-  - Note that validation dataset should be in `image-root/val`.
+2. Set `--image-root` to the root folder of your own dataset.
+  - Note that the validation dataset should be in `image-root/val`.
 3. Set `--run-scope` to `eval_only`.
 ```bash
 # For single GPU evaluation
@@ -672,16 +750,26 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
 ```
 
 #### Inference with TensorRT
-To run inference with TensorRT for the best performance, you can apply the scripts in `scripts/inference`.
+For inference with TensorRT, we provide two scopes to benchmark with or without data preprocessing.
+
+The default scripts in `scripts/inference` use synthetic input to run inference without data preprocessing.
 
 For example,
 1. Run `bash scripts/inference/export_resnet50_AMP.sh <your_checkpoint>` to export an inference model.
-  - The default path of checkpoint is `./output/ResNet50/89`.
+  - The default path of the checkpoint is `./output/ResNet50/89`.
 2. Run `bash scripts/inference/infer_resnet50_AMP.sh` to infer with TensorRT.
 
 Or you could manually run `export_model.py` and `inference.py` with specific arguments, refer to [Command-line options](#command-line-options).
 
 Note that arguments passed to `export_model.py` and `inference.py` should be the same with arguments used in training.
+
+To run inference with data preprocessing, set the option `--use-synthetic` to false and `--image-root` to the path of your own dataset. For example,
+
+```bash
+python inference.py --inference-dir <path_to_model> \
+  --image-root <your_own_data_set> \
+  --use-synthetic False
+```
 
 ## Performance
 
@@ -748,32 +836,32 @@ python -m paddle.distributed.launch --gpus=0,1,2,3,4,5,6,7 train.py \
 
 ##### Benchmark with TensorRT
 
-To benchmark the inference performance with TensorRT on a specific batch size, run:
+To benchmark the inference performance with TensorRT on a specific batch size, run inference.py with `--use-synthetic True`. The benchmark uses synthetic input without data preprocessing.
 
 * FP32 / TF32
 ```bash
 python inference.py \
-    --trt-inference-dir <path_to_exported_model> \
-    --trt-precision FP32 \
+    --inference-dir <path_to_exported_model> \
+    --precision FP32 \
     --batch-size <batch_size> \
     --benchmark-steps 1024 \
-    --benchmark-warmup-steps 16
+    --benchmark-warmup-steps 16 \
+    --use-synthetic True
 ```
 
 * FP16
 ```bash
 python inference.py \
-    --trt-inference-dir <path_to_exported_model> \
-    --trt-precision FP16 \
+    --inference-dir <path_to_exported_model> \
+    --precision FP16 \
     --batch-size <batch_size>
     --benchmark-steps 1024 \
-    --benchmark-warmup-steps 16
+    --benchmark-warmup-steps 16 \
+    --use-synthetic True
 ```
 
 Note that arguments passed to `inference.py` should be the same with arguments used in training.
 
-The benchmark uses the validation dataset by default, which should be put in `--image-root/val`.
-For the performance benchmark of the raw model, a synthetic dataset can be used. To use synthetic dataset, add `--trt-use-synthat True` as a command line option.
 
 ### Results
 
@@ -793,7 +881,7 @@ To achieve these same results, follow the steps in the [Quick Start Guide](#quic
 
 ##### Example plots
 
-The following images show the 90 epochs configuration on a DGX-A100.
+The following images show the 90 epoch configuration on a DGX-A100.
 
 ![ValidationLoss](./img/loss.png)
 ![ValidationTop1](./img/top1.png)
@@ -815,8 +903,8 @@ To achieve these same results, follow the steps in the [Quick Start Guide](#quic
 
 | **GPUs** |  **Throughput - TF32**  | **Throughput - mixed precision** | **Throughput speedup (TF32 to mixed precision)** | **TF32 Scaling** | **Mixed Precision Scaling** | **Mixed Precision Training Time (90E)** | **TF32 Training Time (90E)** |
 |:--------:|:------------:|:-------------:|:------------:|:------:|:--------:|:--------:|:--------:|
-|    1     |    993 img/s |  2711 img/s   |    2.73 x    | 1.0 x  |  1.0 x   | ~13 hours| ~40 hours|
-|    8     |  7955 img/s  |   20267 img/s |    2.54 x    | 8.01 x | 7.47 x   | ~2 hours | ~4 hours |
+|    1     |  1024 img/s  |  2897 img/s   |    2.83 x    | 1.0 x  |  1.0 x   | ~13 hours| ~40 hours|
+|    8     |  8013 img/s  |   23874 img/s |    2.98 x    | 7.83 x | 8.24 x   | ~2 hours | ~4 hours |
 
 ##### Training performance of Automatic SParsity: NVIDIA DGX A100 (8x A100 80GB)
 | **GPUs** |  **Throughput - mixed precision** | **Throughput - mixed precision+ASP** | **Overhead** |
@@ -825,7 +913,7 @@ To achieve these same results, follow the steps in the [Quick Start Guide](#quic
 |    8     |          20267 img/s              |              20144 img/s             | 0.6%         |
 
 
-Note that the `train.py` would enable CPU affinity binding to GPUs by default, that is designed and guaranteed being optimal for NVIDIA DGX-series. You could disable binding via launch `train.py` with `--enable-cpu-affinity false`.
+Note that the `train.py` would enable CPU affinity binding to GPUs by default, that is designed and guaranteed to be optimal for NVIDIA DGX-series. You could disable binding via launch `train.py` with `--enable-cpu-affinity false`.
 
 
 ### Inference performance results
@@ -866,96 +954,143 @@ Our results were obtained by running the applicable training script with `--run-
 #### Paddle-TRT performance: NVIDIA DGX A100 (1x A100 80GB)
 Our results for Paddle-TRT were obtained by running the `inference.py` script on NVIDIA DGX A100 with (1x A100 80G) GPU.
 
+Note that the benchmark does not include data preprocessing. Refer to [Benchmark with TensorRT](#benchmark-with-tensorrt).
+
 **TF32 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 716.49 img/s | 1.40 ms | 1.96 ms | 2.20 ms | 3.01 ms |
-| 2 | 1219.98 img/s | 1.64 ms | 2.26 ms | 2.90 ms | 5.04 ms |
-| 4 | 1880.12 img/s | 2.13 ms | 3.39 ms | 4.44 ms | 7.32 ms |
-| 8 | 2404.10 img/s | 3.33 ms | 4.51 ms | 5.90 ms | 10.39 ms |
-| 16 | 3101.28 img/s | 5.16 ms | 7.06 ms | 9.13 ms | 15.18 ms |
-| 32 | 3294.11 img/s | 9.71 ms | 21.42 ms | 26.94 ms | 35.79 ms |
-| 64 | 4327.38 img/s | 14.79 ms | 25.59 ms | 30.45 ms | 45.34 ms |
-| 128 | 4956.59 img/s | 25.82 ms | 33.74 ms | 40.36 ms | 56.06 ms |
-| 256 | 5244.29 img/s | 48.81 ms | 62.11 ms | 67.56 ms | 88.38 ms |
+| 1 | 969.11 img/s | 1.03 ms | 1.03 ms | 1.13 ms | 1.14 ms |
+| 2 | 1775.33 img/s | 1.13 ms | 1.13 ms | 1.22 ms | 1.23 ms |
+| 4 | 3088.02 img/s | 1.29 ms | 1.30 ms | 1.39 ms | 1.40 ms |
+| 8 | 4552.29 img/s | 1.76 ms | 1.76 ms | 1.85 ms | 1.87 ms |
+| 16 | 6059.48 img/s | 2.64 ms | 2.64 ms | 2.73 ms | 2.75 ms |
+| 32 | 7264.92 img/s | 4.40 ms | 4.41 ms | 4.49 ms | 4.52 ms |
+| 64 | 8022.82 img/s | 7.98 ms | 8.03 ms | 8.05 ms | 8.11 ms |
+| 128 | 8436.27 img/s | 15.17 ms | 15.20 ms | 15.27 ms | 15.30 ms |
+| 256 | 8623.08 img/s | 29.69 ms | 29.82 ms | 29.86 ms | 29.97 ms |
 
 **FP16 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 860.90 img/s | 1.16 ms | 1.81 ms | 2.06 ms | 2.98 ms |
-| 2 | 1464.06 img/s | 1.37 ms | 2.13 ms | 2.73 ms | 4.76 ms |
-| 4 | 2246.24 img/s | 1.78 ms | 3.17 ms | 4.20 ms | 7.39 ms |
-| 8 | 2457.44 img/s | 3.25 ms | 4.35 ms | 5.50 ms | 9.98 ms |
-| 16 | 3928.83 img/s | 4.07 ms | 6.26 ms | 8.50 ms | 15.10 ms |
-| 32 | 3853.13 img/s | 8.30 ms | 19.87 ms | 25.51 ms | 34.99 ms |
-| 64 | 5581.89 img/s | 11.46 ms | 22.32 ms | 30.75 ms | 43.35 ms |
-| 128 | 6846.77 img/s | 18.69 ms | 25.43 ms | 35.03 ms | 50.04 ms |
-| 256 | 7481.19 img/s | 34.22 ms | 40.92 ms | 51.10 ms | 65.68 ms |
+| 1 | 1306.28 img/s | 0.76 ms | 0.77 ms | 0.86 ms | 0.87 ms |
+| 2 | 2453.18 img/s | 0.81 ms | 0.82 ms | 0.91 ms | 0.92 ms |
+| 4 | 4295.75 img/s | 0.93 ms | 0.95 ms | 1.03 ms | 1.04 ms |
+| 8 | 7036.09 img/s | 1.14 ms | 1.15 ms | 1.23 ms | 1.25 ms |
+| 16 | 10376.70 img/s | 1.54 ms | 1.56 ms | 1.64 ms | 1.66 ms |
+| 32 | 13078.23 img/s | 2.45 ms | 2.45 ms | 2.54 ms | 2.56 ms |
+| 64 | 14992.88 img/s | 4.27 ms | 4.27 ms | 4.36 ms | 4.38 ms |
+| 128 | 16386.96 img/s | 7.81 ms | 7.83 ms | 7.89 ms | 7.93 ms |
+| 256 | 17363.79 img/s | 14.74 ms | 14.80 ms | 14.82 ms | 14.90 ms |
+
+**INT8 Inference Latency**
+
+|**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
+|--------------|------------------|---------------|---------------|---------------|---------------|
+| 1 | 1430.17 img/s | 0.70 ms | 0.70 ms | 0.79 ms | 0.80 ms |
+| 2 | 2683.75 img/s | 0.74 ms | 0.75 ms | 0.84 ms | 0.85 ms |
+| 4 | 4792.51 img/s | 0.83 ms | 0.84 ms | 0.93 ms | 0.94 ms |
+| 8 | 8366.92 img/s | 0.96 ms | 0.96 ms | 1.05 ms | 1.06 ms |
+| 16 | 13083.56 img/s | 1.22 ms | 1.22 ms | 1.32 ms | 1.33 ms |
+| 32 | 18171.90 img/s | 1.76 ms | 1.76 ms | 1.86 ms | 1.87 ms |
+| 64 | 22578.08 img/s | 2.83 ms | 2.84 ms | 2.93 ms | 2.95 ms |
+| 128 | 25730.51 img/s | 4.97 ms | 4.98 ms | 5.07 ms | 5.08 ms |
+| 256 | 27935.10 img/s | 9.16 ms | 9.26 ms | 9.30 ms | 9.34 ms |
 
 #### Paddle-TRT performance: NVIDIA A30 (1x A30 24GB)
 Our results for Paddle-TRT were obtained by running the `inference.py` script on NVIDIA A30 with (1x A30 24G) GPU.
 
+Note that the benchmark does not include data preprocessing. Refer to [Benchmark with TensorRT](#benchmark-with-tensorrt).
+
 **TF32 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 672.79 img/s | 1.49 ms | 2.01 ms | 2.29 ms | 3.04 ms |
-| 2 | 1041.47 img/s | 1.92 ms | 2.49 ms | 2.87 ms | 4.13 ms |
-| 4 | 1505.64 img/s | 2.66 ms | 3.43 ms | 4.06 ms | 6.85 ms |
-| 8 | 2001.13 img/s | 4.00 ms | 4.72 ms | 5.54 ms | 9.51 ms |
-| 16 | 2462.80 img/s | 6.50 ms | 7.71 ms | 9.32 ms | 15.54 ms |
-| 32 | 2474.34 img/s | 12.93 ms | 21.61 ms | 25.76 ms | 34.69 ms |
-| 64 | 2949.38 img/s | 21.70 ms | 29.58 ms | 34.63 ms | 47.11 ms |
-| 128 | 3278.67 img/s | 39.04 ms | 43.34 ms | 52.72 ms | 66.78 ms |
-| 256 | 3293.10 img/s | 77.74 ms | 90.51 ms | 99.71 ms | 110.80 ms |
+| 1 | 860.08 img/s | 1.16 ms | 1.16 ms | 1.27 ms | 1.29 ms |
+| 2 | 1422.02 img/s | 1.40 ms | 1.41 ms | 1.52 ms | 1.53 ms |
+| 4 | 2058.41 img/s | 1.94 ms | 1.94 ms | 2.06 ms | 2.10 ms |
+| 8 | 2748.94 img/s | 2.91 ms | 2.93 ms | 3.03 ms | 3.22 ms |
+| 16 | 3329.39 img/s | 4.80 ms | 4.90 ms | 4.93 ms | 5.09 ms |
+| 32 | 3729.45 img/s | 8.58 ms | 8.68 ms | 8.74 ms | 8.84 ms |
+| 64 | 3946.74 img/s | 16.21 ms | 16.34 ms | 16.41 ms | 16.51 ms |
+| 128 | 4116.98 img/s | 31.09 ms | 31.26 ms | 31.38 ms | 31.43 ms |
+| 256 | 4227.52 img/s | 60.55 ms | 60.93 ms | 61.01 ms | 61.25 ms |
 
 **FP16 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 804.56 img/s | 1.24 ms | 1.81 ms | 2.15 ms | 3.07 ms |
-| 2 | 1435.74 img/s | 1.39 ms | 2.05 ms | 2.48 ms | 3.86 ms |
-| 4 | 2169.87 img/s | 1.84 ms | 2.72 ms | 3.39 ms | 5.94 ms |
-| 8 | 2395.13 img/s | 3.34 ms | 4.46 ms | 5.11 ms | 9.49 ms |
-| 16 | 3779.82 img/s | 4.23 ms | 5.83 ms | 7.66 ms | 14.44 ms |
-| 32 | 3620.18 img/s | 8.84 ms | 17.90 ms | 22.31 ms | 30.91 ms |
-| 64 | 4592.08 img/s | 13.94 ms | 24.00 ms | 29.38 ms | 41.41 ms |
-| 128 | 5064.06 img/s | 25.28 ms | 31.73 ms | 37.79 ms | 53.01 ms |
-| 256 | 4774.61 img/s | 53.62 ms | 59.04 ms | 67.29 ms | 80.51 ms |
+| 1 | 1195.76 img/s | 0.83 ms | 0.84 ms | 0.95 ms | 0.96 ms |
+| 2 | 2121.44 img/s | 0.94 ms | 0.95 ms | 1.05 ms | 1.10 ms |
+| 4 | 3498.59 img/s | 1.14 ms | 1.14 ms | 1.26 ms | 1.30 ms |
+| 8 | 5139.91 img/s | 1.55 ms | 1.56 ms | 1.67 ms | 1.72 ms |
+| 16 | 6322.78 img/s | 2.53 ms | 2.54 ms | 2.64 ms | 2.83 ms |
+| 32 | 7093.70 img/s | 4.51 ms | 4.61 ms | 4.64 ms | 4.70 ms |
+| 64 | 7682.36 img/s | 8.33 ms | 8.44 ms | 8.48 ms | 8.58 ms |
+| 128 | 8072.73 img/s | 15.85 ms | 15.98 ms | 16.04 ms | 16.14 ms |
+| 256 | 8393.37 img/s | 30.50 ms | 30.67 ms | 30.70 ms | 30.84 ms |
 
+**INT8 Inference Latency**
+
+|**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
+|--------------|------------------|---------------|---------------|---------------|---------------|
+| 1 | 1346.83 img/s | 0.74 ms | 0.74 ms | 0.85 ms | 0.87 ms |
+| 2 | 2415.06 img/s | 0.83 ms | 0.83 ms | 0.94 ms | 0.99 ms |
+| 4 | 4152.29 img/s | 0.96 ms | 0.97 ms | 1.07 ms | 1.11 ms |
+| 8 | 6684.53 img/s | 1.20 ms | 1.20 ms | 1.31 ms | 1.37 ms |
+| 16 | 9336.11 img/s | 1.71 ms | 1.72 ms | 1.82 ms | 1.89 ms |
+| 32 | 11544.88 img/s | 2.77 ms | 2.77 ms | 2.88 ms | 3.09 ms |
+| 64 | 12954.16 img/s | 4.94 ms | 5.04 ms | 5.08 ms | 5.23 ms |
+| 128 | 13914.60 img/s | 9.20 ms | 9.27 ms | 9.34 ms | 9.45 ms |
+| 256 | 14443.15 img/s | 17.72 ms | 17.87 ms | 17.92 ms | 18.00 ms |
 
 #### Paddle-TRT performance: NVIDIA A10 (1x A10 24GB)
 Our results for Paddle-TRT were obtained by running the `inference.py` script on NVIDIA A10 with (1x A10 24G) GPU.
 
+Note that the benchmark does not include data preprocessing. Refer to [Benchmark with TensorRT](#benchmark-with-tensorrt).
+
 **TF32 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 372.04 img/s | 2.69 ms | 3.64 ms | 4.20 ms | 5.28 ms |
-| 2 | 615.93 img/s | 3.25 ms | 4.08 ms | 4.59 ms | 6.42 ms |
-| 4 | 1070.02 img/s | 3.74 ms | 3.90 ms | 4.35 ms | 7.48 ms |
-| 8 | 1396.88 img/s | 5.73 ms | 6.87 ms | 7.52 ms | 10.63 ms |
-| 16 | 1522.20 img/s | 10.51 ms | 12.73 ms | 13.84 ms | 17.84 ms |
-| 32 | 1674.39 img/s | 19.11 ms | 23.23 ms | 24.63 ms | 29.55 ms |
-| 64 | 1782.14 img/s | 35.91 ms | 41.84 ms | 44.53 ms | 48.94 ms |
-| 128 | 1722.33 img/s | 74.32 ms | 85.37 ms | 89.27 ms | 94.85 ms |
-| 256 | 1576.89 img/s | 162.34 ms | 181.01 ms | 185.92 ms | 194.42 ms |
+| 1 | 601.39 img/s | 1.66 ms | 1.66 ms | 1.82 ms | 1.85 ms |
+| 2 | 962.31 img/s | 2.08 ms | 2.13 ms | 2.23 ms | 2.38 ms |
+| 4 | 1338.26 img/s | 2.99 ms | 3.04 ms | 3.14 ms | 3.32 ms |
+| 8 | 1650.56 img/s | 4.85 ms | 4.93 ms | 5.01 ms | 5.14 ms |
+| 16 | 2116.53 img/s | 7.56 ms | 7.64 ms | 7.71 ms | 7.84 ms |
+| 32 | 2316.43 img/s | 13.81 ms | 14.00 ms | 14.07 ms | 14.26 ms |
+| 64 | 2477.26 img/s | 25.83 ms | 26.05 ms | 26.15 ms | 26.35 ms |
+| 128 | 2528.92 img/s | 50.61 ms | 51.24 ms | 51.37 ms | 51.72 ms |
+| 256 | 2576.08 img/s | 99.37 ms | 100.45 ms | 100.66 ms | 101.05 ms |
 
 **FP16 Inference Latency**
 
 |**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
 |--------------|------------------|---------------|---------------|---------------|---------------|
-| 1 | 365.38 img/s | 2.74 ms | 3.94 ms | 4.35 ms | 5.64 ms |
-| 2 | 612.52 img/s | 3.26 ms | 4.34 ms | 4.80 ms | 6.97 ms |
-| 4 | 1018.15 img/s | 3.93 ms | 4.95 ms | 5.55 ms | 9.16 ms |
-| 8 | 1924.26 img/s | 4.16 ms | 5.44 ms | 6.20 ms | 11.89 ms |
-| 16 | 2477.49 img/s | 6.46 ms | 8.07 ms | 9.21 ms | 15.05 ms |
-| 32 | 2896.01 img/s | 11.05 ms | 13.56 ms | 15.32 ms | 21.76 ms |
-| 64 | 3165.27 img/s | 20.22 ms | 24.20 ms | 25.94 ms | 33.18 ms |
-| 128 | 3176.46 img/s | 40.29 ms | 46.36 ms | 49.15 ms | 54.95 ms |
-| 256 | 3110.01 img/s | 82.31 ms | 93.21 ms | 96.06 ms | 99.97 ms |
+| 1 | 1109.59 img/s | 0.90 ms | 0.90 ms | 1.06 ms | 1.08 ms |
+| 2 | 1901.53 img/s | 1.05 ms | 1.05 ms | 1.22 ms | 1.23 ms |
+| 4 | 2733.20 img/s | 1.46 ms | 1.48 ms | 1.62 ms | 1.65 ms |
+| 8 | 3494.23 img/s | 2.29 ms | 2.32 ms | 2.44 ms | 2.48 ms |
+| 16 | 4113.53 img/s | 3.89 ms | 3.99 ms | 4.10 ms | 4.17 ms |
+| 32 | 4714.63 img/s | 6.79 ms | 6.98 ms | 7.14 ms | 7.30 ms |
+| 64 | 5054.70 img/s | 12.66 ms | 12.78 ms | 12.83 ms | 13.08 ms |
+| 128 | 5261.98 img/s | 24.32 ms | 24.58 ms | 24.71 ms | 24.96 ms |
+| 256 | 5397.53 img/s | 47.43 ms | 47.83 ms | 47.95 ms | 48.17 ms |
+
+**INT8 Inference Latency**
+
+|**Batch Size**|**Avg throughput**|**Avg latency**|**90% Latency**|**95% Latency**|**99% Latency**|
+|--------------|------------------|---------------|---------------|---------------|---------------|
+| 1 | 1285.15 img/s | 0.78 ms | 0.78 ms | 0.93 ms | 0.95 ms |
+| 2 | 2293.43 img/s | 0.87 ms | 0.88 ms | 1.03 ms | 1.05 ms |
+| 4 | 3508.39 img/s | 1.14 ms | 1.15 ms | 1.29 ms | 1.32 ms |
+| 8 | 5907.02 img/s | 1.35 ms | 1.36 ms | 1.51 ms | 1.60 ms |
+| 16 | 7416.99 img/s | 2.16 ms | 2.19 ms | 2.31 ms | 2.36 ms |
+| 32 | 8337.02 img/s | 3.84 ms | 3.91 ms | 4.01 ms | 4.14 ms |
+| 64 | 9039.71 img/s | 7.08 ms | 7.24 ms | 7.40 ms | 7.66 ms |
+| 128 | 9387.23 img/s | 13.63 ms | 13.84 ms | 13.92 ms | 14.11 ms |
+| 256 | 9598.97 img/s | 26.67 ms | 27.12 ms | 27.24 ms | 27.48 ms |
 
 ## Release notes
 
@@ -974,6 +1109,11 @@ Our results for Paddle-TRT were obtained by running the `inference.py` script on
   * Added options Label Smoothing, fan-in initialization, skipping weight decay on batch norm gamma and bias.
   * Updated README
   * A100 convergence benchmark
+
+3. December 2023
+  * Add quantization aware training 
+  * Add INT8 inference for Paddle-TRT
+  * Simplify the inference process
 
 
 ### Known issues

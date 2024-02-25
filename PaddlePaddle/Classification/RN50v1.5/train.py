@@ -12,20 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import logging
-import paddle
-from paddle.distributed import fleet
-from paddle.static import sparsity
-from paddle.fluid.contrib.mixed_precision.fp16_utils import rewrite_program
-from paddle.fluid.contrib.mixed_precision.fp16_lists import AutoMixedPrecisionLists
+import os
+
 from dali import build_dataloader
+from utils.affinity import set_cpu_affinity
 from utils.config import parse_args, print_args
 from utils.logger import setup_dllogger
-from utils.save_load import init_program, save_model
-from utils.affinity import set_cpu_affinity
 from utils.mode import Mode, RunScope
+from utils.save_load import init_program, save_model
+
+import paddle
 import program
+from paddle.distributed import fleet
+from paddle.static.amp.fp16_lists import AutoMixedPrecisionLists
+from paddle.static.amp.fp16_utils import cast_model_to_fp16
+from paddle.incubate import asp as sparsity
+from paddle.static.quantization.quanter import quant_aware
 
 
 class MetricSummary:
@@ -35,18 +38,24 @@ class MetricSummary:
 
     def update(self, new_metrics):
         if not self.is_updated:
-            self.metric_dict = dict()
+            self.metric_dict = {}
 
         for key in new_metrics:
             if key in self.metric_dict:
                 # top1, top5 and ips are "larger is better"
                 if key in ['top1', 'top5', 'ips']:
-                    self.metric_dict[key] = new_metrics[key] if new_metrics[
-                        key] > self.metric_dict[key] else self.metric_dict[key]
+                    self.metric_dict[key] = (
+                        new_metrics[key]
+                        if new_metrics[key] > self.metric_dict[key]
+                        else self.metric_dict[key]
+                    )
                 # Others are "Smaller is better"
                 else:
-                    self.metric_dict[key] = new_metrics[key] if new_metrics[
-                        key] < self.metric_dict[key] else self.metric_dict[key]
+                    self.metric_dict[key] = (
+                        new_metrics[key]
+                        if new_metrics[key] < self.metric_dict[key]
+                        else self.metric_dict[key]
+                    )
             else:
                 self.metric_dict[key] = new_metrics[key]
 
@@ -89,7 +98,8 @@ def main(args):
             train_prog,
             startup_prog,
             step_each_epoch=train_step_each_epoch,
-            is_train=True)
+            is_train=True,
+        )
 
     eval_dataloader = None
     eval_prog = None
@@ -98,12 +108,13 @@ def main(args):
         eval_step_each_epoch = len(eval_dataloader)
         eval_prog = paddle.static.Program()
 
-        eval_fetchs, _, _, _ = program.build(
+        eval_fetchs, _, eval_feeds, _ = program.build(
             args,
             eval_prog,
             startup_prog,
             step_each_epoch=eval_step_each_epoch,
-            is_train=False)
+            is_train=False,
+        )
         # clone to prune some content which is irrelevant in eval_prog
         eval_prog = eval_prog.clone(for_test=True)
 
@@ -113,22 +124,37 @@ def main(args):
     init_program(
         args,
         exe=exe,
-        program=train_prog if train_prog is not None else eval_prog)
+        program=train_prog if train_prog is not None else eval_prog,
+    )
 
     if args.amp:
         if args.run_scope == RunScope.EVAL_ONLY:
-            rewrite_program(eval_prog, amp_lists=AutoMixedPrecisionLists())
+            cast_model_to_fp16(
+                eval_prog,
+                AutoMixedPrecisionLists(),
+                use_fp16_guard=False,
+                level='O1',
+            )
         else:
             optimizer.amp_init(
                 device,
                 scope=paddle.static.global_scope(),
                 test_program=eval_prog,
-                use_fp16_test=True)
+                use_fp16_test=True,
+            )
 
     if args.asp and args.prune_model:
         logging.info("Pruning model to 2:4 sparse pattern...")
         sparsity.prune_model(train_prog, mask_algo=args.mask_algo)
         logging.info("Pruning model done.")
+
+    if args.qat:
+        if args.run_scope == RunScope.EVAL_ONLY:
+            eval_prog = quant_aware(eval_prog, device, for_test=True, return_program=True)
+        else:
+            optimizer.qat_init(
+                device,
+                test_program=eval_prog)
 
     if eval_prog is not None:
         eval_prog = program.compile_prog(args, eval_prog, is_train=False)
@@ -138,28 +164,44 @@ def main(args):
     for epoch_id in range(args.start_epoch, args.epochs):
         # Training
         if train_prog is not None:
-            metric_summary = program.run(args, train_dataloader, exe,
-                                         train_prog, train_fetchs, epoch_id,
-                                         Mode.TRAIN, lr_scheduler)
+            metric_summary = program.run(
+                args,
+                train_dataloader,
+                exe,
+                train_prog,
+                train_fetchs,
+                epoch_id,
+                Mode.TRAIN,
+                lr_scheduler,
+            )
             train_summary.update(metric_summary)
 
             # Save a checkpoint
             if epoch_id % args.save_interval == 0:
-                model_path = os.path.join(args.output_dir,
-                                          args.model_arch_name)
+                model_path = os.path.join(args.checkpoint_dir, args.model_arch_name)
                 save_model(train_prog, model_path, epoch_id, args.model_prefix)
 
         # Evaluation
-        if (eval_prog is not None) and \
-            (epoch_id % args.eval_interval == 0):
-            metric_summary = program.run(args, eval_dataloader, exe, eval_prog,
-                                         eval_fetchs, epoch_id, Mode.EVAL)
+        if (eval_prog is not None) and (epoch_id % args.eval_interval == 0):
+            metric_summary = program.run(
+                args,
+                eval_dataloader,
+                exe,
+                eval_prog,
+                eval_fetchs,
+                epoch_id,
+                Mode.EVAL,
+            )
             eval_summary.update(metric_summary)
 
     if train_summary.is_updated:
-        program.log_info(tuple(), train_summary.metric_dict, Mode.TRAIN)
+        program.log_info((), train_summary.metric_dict, Mode.TRAIN)
     if eval_summary.is_updated:
-        program.log_info(tuple(), eval_summary.metric_dict, Mode.EVAL)
+        program.log_info((), eval_summary.metric_dict, Mode.EVAL)
+
+    if eval_prog is not None:
+        model_path = os.path.join(args.inference_dir, args.model_arch_name)
+        paddle.static.save_inference_model(model_path, [eval_feeds['data']], [eval_fetchs['label'][0]], exe, program=eval_prog)
 
 
 if __name__ == '__main__':
