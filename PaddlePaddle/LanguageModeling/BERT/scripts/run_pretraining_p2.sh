@@ -15,7 +15,8 @@
 python3 -m paddle.distributed.launch \
 --gpus="0,1,2,3,4,5,6,7" \
 ./run_pretraining.py \
---input-dir=./data/hdf5_lower_case_1_seq_len_512_max_pred_80_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5/wikicorpus_en \
+--input-dir=pretrain/phase2/bin_size_64/parquet \
+--vocab-file=vocab/bert-large-uncased-vocab.txt \
 --output-dir=./results/checkpoints \
 --bert-model=bert-large-uncased \
 --from-checkpoint=./results/checkpoints/bert-large-uncased/phase2 \
@@ -31,6 +32,7 @@ python3 -m paddle.distributed.launch \
 --amp \
 --use-dynamic-loss-scaling \
 --optimizer=Lamb \
+--fuse-mha \
 --phase2 \
 --scale-loss=1048576 \
 --learning-rate=4e-3 \

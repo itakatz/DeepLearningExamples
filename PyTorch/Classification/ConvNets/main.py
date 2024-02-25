@@ -266,12 +266,6 @@ def add_parser_arguments(parser, skip_arch=False):
         help="Static loss scale, positive power of 2 values can improve amp convergence.",
     )
     parser.add_argument(
-        "--dynamic-loss-scale",
-        action="store_true",
-        help="Use dynamic loss scaling.  If supplied, this argument supersedes "
-        + "--static-loss-scale.",
-    )
-    parser.add_argument(
         "--prof", type=int, default=-1, metavar="N", help="Run only N iterations"
     )
     parser.add_argument(
@@ -422,6 +416,7 @@ def prepare_for_training(args, model_args, model_arch):
         print("BSM: {}".format(batch_size_multiplier))
 
     start_epoch = 0
+    best_prec1 = 0
     # optionally resume from a checkpoint
     if args.resume is not None:
         if os.path.isfile(args.resume):
@@ -483,7 +478,7 @@ def prepare_for_training(args, model_args, model_arch):
         init_scale=args.static_loss_scale,
         growth_factor=2,
         backoff_factor=0.5,
-        growth_interval=100 if args.dynamic_loss_scale else 1000000000,
+        growth_interval=100,
         enabled=args.amp,
     )
 
@@ -609,13 +604,12 @@ def prepare_for_training(args, model_args, model_arch):
         val_loader,
         logger,
         start_epoch,
+        best_prec1,
     )
 
 
 def main(args, model_args, model_arch):
     exp_start_time = time.time()
-    global best_prec1
-    best_prec1 = 0
 
     (
         trainer,
@@ -625,6 +619,7 @@ def main(args, model_args, model_arch):
         val_loader,
         logger,
         start_epoch,
+        best_prec1,
     ) = prepare_for_training(args, model_args, model_arch)
 
     train_loop(

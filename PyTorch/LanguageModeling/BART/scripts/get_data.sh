@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,12 +20,12 @@ data_folder=${1:-"/workspace/bart/data/"}
 mkdir -p $data_folder
 
 # Download and unzip the stories directories into data folder from https://cs.nyu.edu/~kcho/DMQA/ for both CNN and Daily Mail.
-cd $data_folder && gdown --id 0BwmD_VLjROrfTHk4NFg2SndKcjQ && tar xf cnn_stories.tgz
-gdown --id 0BwmD_VLjROrfM1BxdkxVaTY2bWs && tar xf dailymail_stories.tgz
+cd $data_folder && gdown "0BwmD_VLjROrfTHk4NFg2SndKcjQ&confirm=t" && tar xf cnn_stories.tgz
+gdown "0BwmD_VLjROrfM1BxdkxVaTY2bWs&confirm=t" && tar xf dailymail_stories.tgz
 
 cnn_stories=/workspace/bart/data/cnn/stories
 dailymail_stories=/workspace/bart/data/dailymail/stories
 
-cd /workspace/cnn-dailymail && python /workspace/cnn-dailymail/make_datafiles.py $cnn_stories $dailymail_stories && mv cnn_dm ${data_folder}
+cd /workspace/cnn-dailymail && python /workspace/bart/utils/make_datafiles.py $cnn_stories $dailymail_stories && mv cnn_dm ${data_folder}
 
 cd ${data_folder} && wget https://s3.amazonaws.com/datasets.huggingface.co/summarization/xsum.tar.gz && tar -xvf xsum.tar.gz

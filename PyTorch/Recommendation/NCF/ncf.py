@@ -47,9 +47,10 @@ from neumf_constants import USER_CHANNEL_NAME, ITEM_CHANNEL_NAME, LABEL_CHANNEL_
 
 import dllogger
 
-from apex.parallel import DistributedDataParallel as DDP
-from apex import amp
 
+def synchronized_timestamp():
+    torch.cuda.synchronize()
+    return time.time()
 
 def parse_args():
     parser = ArgumentParser(description="Train a Neural Collaborative"
@@ -218,7 +219,7 @@ def main():
         torch.distributed.broadcast(torch.tensor([1], device="cuda"), 0)
     torch.cuda.synchronize()
 
-    main_start_time = time.time()
+    main_start_time = synchronized_timestamp()
 
     feature_spec_path = os.path.join(args.data, args.feature_spec_file)
     feature_spec = FeatureSpec.from_yaml(feature_spec_path)
@@ -248,12 +249,8 @@ def main():
     model = model.cuda()
     criterion = criterion.cuda()
 
-    if args.amp:
-        model, optimizer = amp.initialize(model, optimizer, opt_level="O2",
-                                          keep_batchnorm_fp32=False, loss_scale='dynamic')
-
     if args.distributed:
-        model = DDP(model)
+        model = torch.nn.parallel.DistributedDataParallel(model)
 
     local_batch = args.batch_size // args.world_size
     traced_criterion = torch.jit.trace(criterion.forward,
@@ -268,10 +265,10 @@ def main():
         model.load_state_dict(state_dict)
 
     if args.mode == 'test':
-        start = time.time()
+        start = synchronized_timestamp()
         hr, ndcg, val_loss = val_epoch(model, test_loader, args.topk,
                                        distributed=args.distributed, world_size=args.world_size)
-        val_time = time.time() - start
+        val_time = synchronized_timestamp() - start
         eval_size = test_loader.raw_dataset_length
         eval_throughput = eval_size / val_time
 
@@ -285,12 +282,13 @@ def main():
     # to an uninitialized variable.
     max_hr = 0
     best_epoch = 0
-    best_model_timestamp = time.time()
+    best_model_timestamp = synchronized_timestamp()
     train_throughputs, eval_throughputs = [], []
+    scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
 
     for epoch in range(args.epochs):
 
-        begin = time.time()
+        begin = synchronized_timestamp()
         batch_dict_list = train_loader.get_epoch_data()
         num_batches = len(batch_dict_list)
         for i in range(num_batches // args.grads_accumulated):
@@ -307,23 +305,21 @@ def main():
                 label_features = batch_dict[LABEL_CHANNEL_NAME]
                 label_batch = label_features[label_feature_name]
 
-                outputs = model(user_batch, item_batch)
-                loss = traced_criterion(outputs, label_batch.view(-1, 1)).float()
-                loss = torch.mean(loss.view(-1), 0)
+                with torch.cuda.amp.autocast(enabled=args.amp):
+                    outputs = model(user_batch, item_batch)
+                    loss = traced_criterion(outputs, label_batch.view(-1, 1))
+                    loss = torch.mean(loss.float().view(-1), 0)
 
-                if args.amp:
-                    with amp.scale_loss(loss, optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss.backward()
-            optimizer.step()
+                scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             for p in model.parameters():
                 p.grad = None
 
         del batch_dict_list
-        train_time = time.time() - begin
-        begin = time.time()
+        train_time = synchronized_timestamp() - begin
+        begin = synchronized_timestamp()
 
         epoch_samples = train_loader.length_after_augmentation
         train_throughput = epoch_samples / train_time
@@ -332,7 +328,7 @@ def main():
         hr, ndcg, val_loss = val_epoch(model, test_loader, args.topk,
                                        distributed=args.distributed, world_size=args.world_size)
 
-        val_time = time.time() - begin
+        val_time = synchronized_timestamp() - begin
         eval_size = test_loader.raw_dataset_length
         eval_throughput = eval_size / val_time
         eval_throughputs.append(eval_throughput)
@@ -358,7 +354,7 @@ def main():
                 save_checkpoint_path = os.path.join(args.checkpoint_dir, 'model.pth')
                 print("Saving the model to: ", save_checkpoint_path)
                 torch.save(model.state_dict(), save_checkpoint_path)
-            best_model_timestamp = time.time()
+            best_model_timestamp = synchronized_timestamp()
 
         if args.threshold is not None:
             if hr >= args.threshold:
@@ -372,7 +368,7 @@ def main():
                            'mean_eval_throughput': np.mean(eval_throughputs),
                            'best_accuracy': max_hr,
                            'best_epoch': best_epoch,
-                           'time_to_target': time.time() - main_start_time,
+                           'time_to_target': synchronized_timestamp() - main_start_time,
                            'time_to_best_model': best_model_timestamp - main_start_time,
                            'validation_loss': float(val_loss.item()),
                            'train_loss': float(loss.item())},
