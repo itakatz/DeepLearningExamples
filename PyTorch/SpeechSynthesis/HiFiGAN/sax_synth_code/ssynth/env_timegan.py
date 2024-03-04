@@ -170,7 +170,7 @@ class EnvelopesDataset(Dataset):
                 i0, i1 = frames_ind[k : k + 2]
                 note_en[i0 : i1] = np.median(env[i0:i1])
                 note_id[i0 : i1] = midi_p.iloc[k].note
-                is_note[i0 : i1] = 1
+                is_note[i0 : i1] = 1.
         else:
             #env = self.env_cache[index]
             env, midi_p, t0, pitch, vprob, vflag, note_id, note_en, is_note = torch.load(cache_fnm)
@@ -256,8 +256,8 @@ if __name__ == '__main__':
     from TimeGAN_pytorch_fork.lib.env_timegan import EnvelopeTimeGAN
 
     #--- mimic input args
-    #input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
-    input_args = f'env_timegan.py --num_layer 3 --num_layer_gen 3 --num_layer_discrim 3 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2024_01_01 --model EnvelopeTimeGAN --name lyr_3_ldim_16_w_l1_50'
+    # input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
+    input_args = f'env_timegan.py --calc_z_grad --num_layer 3 --num_layer_gen 3 --num_layer_discrim 3 --hidden_dim 64 --latent_dim 8 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2024_04_04 --model EnvelopeTimeGAN --name lyr_3_ldim_8'
     sys.argv = input_args.split()
     opt = Options().parse()
     
@@ -289,6 +289,9 @@ if __name__ == '__main__':
     #--- to load model:
     #opt.resume = 'results/2023_17_12_test/test4_mean_bce/train/weights'
     #opt.resume_epoch = 0
+
+    # opt.resume='results/2023_31_12_ldim2/bug_fix_and_smooth_loss1/train/weights'
+    # opt.resume_epoch=499
 
     model = EnvelopeTimeGAN(opt, train_loader, val_loader)
     if joint_train_only:
