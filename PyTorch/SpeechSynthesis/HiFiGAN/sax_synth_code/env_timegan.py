@@ -1,4 +1,4 @@
-from utils import midi
+from ssynth.utils import midi
 
 import os
 import glob
@@ -230,8 +230,8 @@ def get_env_train_val_data(cache_dir, batch_size = 32, sample_dur_sec = 0.5, his
     apply_smoothing = True
     home_dir = os.environ['HOME']
     data_dir = f'{home_dir}/ssynth/git_repos/DeepLearningExamples/PyTorch/SpeechSynthesis/HiFiGAN/data_ssynth'
-    env_data_train = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_train.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
-    env_data_val = EnvelopesDataset(data_dir, '../../data_ssynth/filelists/ssynth_audio_val.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
+    env_data_train = EnvelopesDataset(data_dir, f'{data_dir}/filelists/ssynth_audio_train.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
+    env_data_val = EnvelopesDataset(data_dir, f'{data_dir}/filelists/ssynth_audio_val.txt', env_params, sample_dur_sec, history_len, smoothing = apply_smoothing, cache_dir = cache_dir)
 
     env_data_train_loader = DataLoader(env_data_train, batch_size, shuffle = True, num_workers = workers)
     env_data_val_loader = DataLoader(env_data_val, batch_size, shuffle = False, num_workers = workers)
@@ -257,8 +257,10 @@ if __name__ == '__main__':
 
     #--- mimic input args
     # input_args = f'env_timegan.py --num_layer 5 --hidden_dim 64 --latent_dim 16 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2023_14_12_test --model EnvelopeTimeGAN --name test3'
-    input_args = f'env_timegan.py --calc_z_grad --num_layer 3 --num_layer_gen 3 --num_layer_discrim 3 --hidden_dim 64 --latent_dim 8 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2024_04_04 --model EnvelopeTimeGAN --name lyr_3_ldim_8'
-    sys.argv = input_args.split()
+    if len(sys.argv) == 1:
+        #--- set input args only for running from ipython
+        input_args = f'env_timegan.py --calc_z_grad --num_layer 6 --num_layer_gen 6 --num_layer_discrim 3 --hidden_dim 32 --latent_dim 64 --embedding_dim 32 --batch_size {gCFG.batch_size} --outf results/2024_03_12 --model EnvelopeTimeGAN --name lyr_4g4d3_ldim_64'
+        sys.argv = input_args.split()
     opt = Options().parse()
     
     #--- data loaders
@@ -267,8 +269,8 @@ if __name__ == '__main__':
     train_loader, val_loader = get_env_train_val_data(cache_dir, gCFG.batch_size, gCFG.sample_sec, gCFG.history_len, workers)
     
     #--- different no. of epoch for embed/supervised and for joint training
-    opt.num_epochs_es = 50 #250 #opt.iteration
-    opt.num_epochs = 1000 # opt.iteration
+    opt.num_epochs_es = 150 #250 #opt.iteration
+    opt.num_epochs = 2000 # opt.iteration
     #opt.batch_size = gCFG.batch_size
 
     x, xout, t, note_id, note_en, is_note = train_loader.dataset[0] #--- get a sample for the dims
@@ -282,9 +284,9 @@ if __name__ == '__main__':
     opt.average_seq_before_loss = True
     opt.generator_loss_moments_axis = 1 # use "0" to calculate along batch (original impl, after bug fix), or "1" to calculate along the sequence (makes more sense)
     #--- load autoencode and supervisor (aka AES) from disk to start from joint training
-    AES_checkpoint = './results/2023_30_12_ldim2/test1_gen_latent_dim2/train/weights'
-    AES_epoch = 249
-    joint_train_only = True
+    AES_checkpoint = 'results/2024_03_07/lyr_3_ldim_8/train/weights'
+    AES_epoch = 200
+    joint_train_only = False #True
 
     #--- to load model:
     #opt.resume = 'results/2023_17_12_test/test4_mean_bce/train/weights'
@@ -292,6 +294,9 @@ if __name__ == '__main__':
 
     # opt.resume='results/2023_31_12_ldim2/bug_fix_and_smooth_loss1/train/weights'
     # opt.resume_epoch=499
+    
+    #opt.resume = 'results/2024_04_07/lyr_3_ldim_8/train/weights'
+    #opt.resume_epoch = 1300
 
     model = EnvelopeTimeGAN(opt, train_loader, val_loader)
     if joint_train_only:
