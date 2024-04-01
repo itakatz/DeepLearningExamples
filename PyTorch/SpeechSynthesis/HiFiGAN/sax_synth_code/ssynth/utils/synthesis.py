@@ -106,6 +106,76 @@ def additive_synth_sawtooth(freq, freq_ts, sampling_rate, additive_synth_k = Non
     
     return x, freq
 
+def enhance_pitch_using_midi_phrase(midi_p, pitch, vflag, times, t0, hop, sr, verbose = False):
+    no_note = (~vflag)
+    tmin = times[0]
+    tmax = times[-1]
+    
+    note_on = midi_p.loc[midi_p.type == 'note_on']
+    note_off = midi_p.loc[midi_p.type == 'note_off']
+    #note_hz = librosa.midi_to_hz(note_on.note)
+    note_on_ts = note_on['ts_sec'].values - t0
+    note_off_ts = note_off['ts_sec'].values - t0
+    
+    #-------------------------------------------------------------------------------------------------------------------
+    #--- interpolate missing pitch, where possible. otherwise, set to 0 (in order to accumulate 0 phase when integrating)
+    #-------------------------------------------------------------------------------------------------------------------
+    #--- step A, interpolate within (intra-) midi notes
+    n_notes = note_on.shape[0]
+    if verbose:
+        print(f'samples with non-detected pitch: {np.isnan(pitch).sum()}')
+    for k in range(n_notes):
+        #--- first, find missing pitch samples which are inside a detected midi note
+        midi_note_span = (times >= note_on_ts[k]) & (times <= note_off_ts[k])
+        
+        #--- if no missing pitch samples are in the midi note span, we don't need this note, so skip
+        if not (midi_note_span & no_note).any():
+            continue
+        
+        #--- if we don't have at least 2 pitch samples in the note span, we can't extrapolate, so skip
+        if (midi_note_span & ~no_note).sum() < 2:
+            continue
+            
+        #--- build the interpolating function from detected pitch samples
+        pitch_intrp = interp1d(times[midi_note_span & ~no_note], 
+                               pitch[midi_note_span & ~no_note], 
+                               fill_value = 'extrapolate', 
+                               kind = 'nearest',
+                               assume_sorted = True)
+        #--- the time samples where we want to interpolate: inside midi note AND missing pitch
+        t_intrp = times[midi_note_span & no_note]
+        pitch[midi_note_span & no_note] = pitch_intrp(t_intrp)
+
+    if verbose:
+        print(f'after interpolating using midi notes: samples with non-detected pitch: {np.isnan(pitch).sum()}')
+
+    #--- step B, interpolate across (inter-) midi notes
+    max_gap_to_interpolate_sec = 0.1 #--- don't interpolate gaps above this interval in seconds
+    no_note = np.isnan(pitch)
+    seg_inds = binary_array_to_seg_inds(no_note, shift_end_ind = False)
+    seg_lens_sec = np.diff(seg_inds, 1)[:,0] * hop / sr
+    for k, inds in enumerate(seg_inds):
+        #--- don't interpolate head or tail of signal, or if gap is too long
+        #--- TODO check energy envelope in gap (interpolate only above env threshold)
+        gap_len = seg_lens_sec[k]
+        if (inds[0] == 0) or (inds[1] == len(pitch)) or gap_len > max_gap_to_interpolate_sec:
+            continue
+        gap_len_samples = inds[1] - inds[0]
+        if verbose:
+            print(f'interpolating over {gap_len_samples} samples over gap of {gap_len:.3f} sec')
+        #--- linear interpolation using 1 sample before and after
+        new_freqs = np.linspace(pitch[inds[0] - 1], pitch[inds[1]], gap_len_samples + 2)
+        pitch[inds[0]:inds[1]] = new_freqs[1:-1]
+
+    #no_note1 = np.isnan(f1)
+    #seg_inds = binary_array_to_seg_inds(no_note1, shift_end_ind = False)
+    if verbose:
+        print(f'after interpolating over small gaps: samples with non-detected pitch: {np.isnan(pitch).sum()}')
+    #--- lastly, fill with zeros the samples that are still missing
+    pitch[np.isnan(pitch)] = 0.
+    
+    return pitch
+
 def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = None, max_freq_hz = None, smoothing = None, verbose = False):
     ''' This method takes raw wav (an audio segment, aka "seg") and an associated midi phrase midi_p as input, and returns a synthesized wave with same amplitude and frequency envelopes
         The midi phrase is used to enclose notes inside a [note_on, note_off] interval
@@ -139,76 +209,12 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
                                       frame_length = win, 
                                       win_length = ac_win, 
                                       hop_length = hop, 
+                                      resolution = 0.05, #--- 5 cents pitch resolution
                                       center = True, 
                                       max_transition_rate = 100)
+    
     times1 = librosa.times_like(f1, sr = sr, hop_length = hop)
-    no_note1 = (~vflag1)
-    tmin = times1[0]
-    tmax = times1[-1]
-    
-    note_on = midi_p.loc[midi_p.type == 'note_on']
-    note_off = midi_p.loc[midi_p.type == 'note_off']
-    #note_hz = librosa.midi_to_hz(note_on.note)
-    note_on_ts = note_on['ts_sec'].values - t0
-    note_off_ts = note_off['ts_sec'].values - t0
-    
-    #-------------------------------------------------------------------------------------------------------------------
-    #--- interpolate missing pitch, where possible. otherwise, set to 0 (in order to accumulate 0 phase when integrating)
-    #-------------------------------------------------------------------------------------------------------------------
-    #--- step A, interpolate within (intra-) midi notes
-    n_notes = note_on.shape[0]
-    if verbose:
-        print(f'samples with non-detected pitch: {np.isnan(f1).sum()}')
-    for k in range(n_notes):
-        #--- first, find missing pitch samples which are inside a detected midi note
-        midi_note_span = (times1 >= note_on_ts[k]) & (times1 <= note_off_ts[k])
-        
-        #--- if no missing pitch samples are in the midi note span, we don't need this note, so skip
-        if not (midi_note_span & no_note1).any():
-            continue
-        
-        #--- if we don't have at least 2 pitch samples in the note span, we can't extrapolate, so skip
-        if (midi_note_span & ~no_note1).sum() < 2:
-            continue
-            
-        #--- build the interpolating function from detected pitch samples
-        pitch_intrp = interp1d(times1[midi_note_span & ~no_note1], 
-                               f1[midi_note_span & ~no_note1], 
-                               fill_value = 'extrapolate', 
-                               kind = 'nearest',
-                               assume_sorted = True)
-        #--- the time samples where we want to interpolate: inside midi note AND missing pitch
-        t_intrp = times1[midi_note_span & no_note1]
-        f1[midi_note_span & no_note1] = pitch_intrp(t_intrp)
-
-    if verbose:
-        print(f'after interpolating using midi notes: samples with non-detected pitch: {np.isnan(f1).sum()}')
-
-    #--- step B, interpolate across (inter-) midi notes
-    max_gap_to_interpolate_sec = 0.1 #--- don't interpolate gaps above this interval in seconds
-    no_note1 = np.isnan(f1)
-    seg_inds = binary_array_to_seg_inds(no_note1, shift_end_ind = False)
-    seg_lens_sec = np.diff(seg_inds, 1)[:,0] * hop / sr
-    for k, inds in enumerate(seg_inds):
-        #--- don't interpolate head or tail of signal, or if gap is too long
-        #--- TODO check energy envelope in gap (interpolate only above env threshold)
-        gap_len = seg_lens_sec[k]
-        if (inds[0] == 0) or (inds[1] == len(f1)) or gap_len > max_gap_to_interpolate_sec:
-            continue
-        gap_len_samples = inds[1] - inds[0]
-        if verbose:
-            print(f'interpolating over {gap_len_samples} samples over gap of {gap_len:.3f} sec')
-        #--- linear interpolation using 1 sample before and after
-        new_freqs = np.linspace(f1[inds[0] - 1], f1[inds[1]], gap_len_samples + 2)
-        f1[inds[0]:inds[1]] = new_freqs[1:-1]
-
-    no_note1 = np.isnan(f1)
-    seg_inds = binary_array_to_seg_inds(no_note1, shift_end_ind = False)
-    if verbose:
-        print(f'after interpolating over small gaps: samples with non-detected pitch: {np.isnan(f1).sum()}')
-    #--- lastly, fill with zeros the samples that are still missing
-    f1[np.isnan(f1)] = 0.
-    
+    f1 = enhance_pitch_using_midi_phrase(midi_p, f1, vflag1, times1, t0, hop, sr)
     x, fnew = additive_synth_sawtooth(f1, times1, sr, num_harmonics, max_freq_hz)
     
     #--- that code was moved to additive_synth_sawtooth method:

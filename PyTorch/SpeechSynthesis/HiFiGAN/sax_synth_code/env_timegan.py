@@ -80,14 +80,16 @@ class EnvelopesDataset(Dataset):
         self.phrase_df = phrase_df[phrase_df['phrase_id'].isin(ids_list)]
 
         self.env_params = env_params
+        self.sampling_rate = 44100 #--- hard code since we need to know it in case we don't load wavs at all (if reading features only from cache)
         self.sample_len_sec = sample_len_sec
-        self.sample_len = None
+        #self.sample_len = None
+        hop_len = self.env_params['hop_len_samples'] #256
+        self.sample_len = int(self.sample_len_sec * self.sampling_rate / hop_len)
         self.history_len_samples = history_len_samples
         self.cache = cache
         self.env_cache = {}
         self.smoothing = smoothing
         self.rng = np.random.default_rng(seed)
-        self.sampling_rate = 44100 #--- hard code since we need to know it in case we don't load wavs at all (if reading features only from cache)
         filt_order = 2
         filt_cutoff_hz = 20
         self.lowpass_sos = butter(filt_order, filt_cutoff_hz, output = 'sos', fs = 44100 / env_params['hop_len_samples'])
@@ -97,7 +99,7 @@ class EnvelopesDataset(Dataset):
         ''' for validation purpose, it is handy to be able to sample the same sub-sequence (just start from sample 0)
         '''
         if self.sample_start_index_randomly:
-            return self.rng.integers(0, env_len - self.sample_len) # np.random.randint(0, env_len - self.sample_len)
+            return self.rng.integers(0, env_len - self.sample_len + 1) # np.random.randint(0, env_len - self.sample_len)
         else:
             return 0
 
@@ -107,8 +109,6 @@ class EnvelopesDataset(Dataset):
         
         hop_len = self.env_params['hop_len_samples'] #256
         frame_len = self.env_params['frame_len_samples'] #512
-        if self.sample_len is None:
-            self.sample_len = int(self.sample_len_sec * self.sampling_rate / hop_len)
 
         if not self.cache or cache_fnm not in self.cache_flist:  #index not in self.env_cache:
             fnm = pinfo['file_nm']
@@ -211,7 +211,7 @@ class EnvelopesDataset(Dataset):
         #--- set input and output
         env_inp, env_out, env_len = env, env[:, -1:], env.shape[0]
 
-        return env_inp, env_out, env_len, note_id, note_en, is_note
+        return env_inp, env_out, env_len, note_id, note_en, is_note, pitch, index
         #--- get envelope 
         #max_freq_hz = 16000
         #pd_cfg = dict(win = 1024, 
@@ -273,7 +273,7 @@ if __name__ == '__main__':
     opt.num_epochs = 2000 # opt.iteration
     #opt.batch_size = gCFG.batch_size
 
-    x, xout, t, note_id, note_en, is_note = train_loader.dataset[0] #--- get a sample for the dims
+    x, xout, t, note_id, note_en, is_note, _ = train_loader.dataset[0] #--- get a sample for the dims
     opt.seq_len = x.shape[0] #167 # 86 - history_len + 1 #344*2+1
     opt.z_dim = x.shape[1] #history_len #1 # number of features per sequence frame
     opt.z_dim_out = xout.shape[1] #1

@@ -12,7 +12,7 @@ from ssynth.utils.synthesis import wav_midi_to_synth
 if __name__ == '__main__':
     #--- input params TODO use argparse
     #--- exactly one of these should be None:
-    num_harmonics, max_freq_hz = np.inf, None # OR: None, 16000
+    num_harmonics, max_freq_hz = 20, None # np.inf, None # OR: None, 16000
     #num_harmonics, max_freq_hz = None, 16000 # OR: None, 16000
     assert num_harmonics is None or max_freq_hz is None
     smoothing_method = 'lowpass' # options are ['lowpass', 'spline', 'none']. NOTE  old method 'spline' is bad, amoothing is done using MSE criterion which depends on signal length
@@ -95,8 +95,9 @@ if __name__ == '__main__':
             #--- save env and pitch
             pitch_fnm_out = f'{pitch_out_dir}/{phrs.phrase_id}.pt'
             if not os.path.isfile(pitch_fnm_out):
-                pitch = torch.tensor(pitch[np.newaxis,:].astype(np.float32))
-                torch.save(pitch, pitch_fnm_out)
+                for key, val in pitch_dict.items():
+                    pitch_dict[key] = torch.tensor(val[np.newaxis,:].astype(np.float32))
+                torch.save(pitch_dict, pitch_fnm_out)
             
             env_fnm_out = f'{env_out_dir}/{phrs.phrase_id}.pt'
             if not os.path.isfile(env_fnm_out):
