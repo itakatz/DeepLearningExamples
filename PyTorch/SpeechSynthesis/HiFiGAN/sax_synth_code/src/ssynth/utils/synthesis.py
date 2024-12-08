@@ -251,7 +251,7 @@ def wav_midi_to_synth(seg, sr, midi_p, t0, pitch_detection_cfg, num_harmonics = 
         assert np.allclose(x,x_), 'x != x_, debug'
 
     env_hop = 1 # we need the env at audio rate
-    env_frame = 512 # this equals ac_win of the pitch detection.. should we set it to ac_win?
+    env_frame = ac_win # 512 # [changed to "ac_win"] (OLD: this equals ac_win of the pitch detection.. should we set it to ac_win?)
     env = librosa.feature.rms(y = seg, frame_length = env_frame, hop_length = env_hop, center = True)
     env = 1.3 * np.sqrt(2)*env[0, :len(x)]
     env[fnew == 0] = 0. # don't apply envelope where there was no pitch found
