@@ -1,26 +1,19 @@
 import soundfile as sf
-#import IPython.display as ipd
-import numpy as np
 import pandas as pd
 import glob
 import os
-import sys
-import matplotlib
-import mido
-from mido import MidiFile
-from scipy.interpolate import interp1d
-import torch
 
-import matplotlib.pyplot as plt
 import librosa.display
 
 from phrase_utils import *
+from ssynth.utils import midi
 
 ''' This script replaces the notebook "prepare_dataset_example.ipynb"
+    Take list of (long) recordings and split to phrases, save pharses and info to disk
 '''
 
 if __name__ == '__main__':
-    range_notes = ['C3', 'A#5'] # alto sax range is ['Db3', 'A5'], take half-step below/above
+    range_notes = midi.MidiUtils.alto_sax_range_pmhs_notes #['C3', 'A#5'] # alto sax range is ['Db3', 'A5'], take half-step below/above
     alto_sax_range = librosa.note_to_hz(range_notes)
     TEST_MODE = False #--- mode for experimenting on a small dataset
     tgt_sr = 44100
